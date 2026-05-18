@@ -283,6 +283,12 @@ public class MTMDWrapperExample: ObservableObject {
     }
     
     /// 重置
+    /// 仅清 KV cache，保留 mtmd_context（轻量、毫秒级）。详见
+    /// `MTMDWrapper.clearKVCacheForNewTurn` 的 doc comment。
+    public func clearKVCacheForNewTurn() {
+        mtmdWrapper.clearKVCacheForNewTurn()
+    }
+
     public func reset() async {
         await mtmdWrapper.reset()
         multiModelLoadingSuccess = false

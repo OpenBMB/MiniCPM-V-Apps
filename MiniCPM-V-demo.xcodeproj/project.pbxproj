@@ -13,8 +13,8 @@
 		FA1ED0A82E225D5A00370614 /* ZipArchive in Frameworks */ = {isa = PBXBuildFile; productRef = FA1ED0A72E225D5A00370614 /* ZipArchive */; };
 		FA201B372C526CDD001FEA76 /* SwiftyCameraMainViewController+LiveStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA201B362C526CDD001FEA76 /* SwiftyCameraMainViewController+LiveStream.swift */; };
 		FA24495E2C3D0B6B0012D624 /* SnapKit in Frameworks */ = {isa = PBXBuildFile; productRef = FA24495D2C3D0B6B0012D624 /* SnapKit */; };
-		FA2449642C3D0B7B0012D624 /* HXPhotoPicker in Frameworks */ = {isa = PBXBuildFile; productRef = FA2449632C3D0B7B0012D624 /* HXPhotoPicker */; };
 		FA2BA6A92C2D5AD8006C8193 /* MBHomeViewController+ImageProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2BA6A82C2D5AD8006C8193 /* MBHomeViewController+ImageProcess.swift */; };
+		49C5B2C8979B45C7A82F9587 /* MBHomeViewController+Warmup.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8593FABEABC4C72ABE22E51 /* MBHomeViewController+Warmup.swift */; };
 		FA35EE752C4901D30099EDC0 /* MBHomeViewController+CaptureVideo.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA35EE742C4901D30099EDC0 /* MBHomeViewController+CaptureVideo.swift */; };
 		FA36EE702C141E66002A2D02 /* MBHomeWelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA36EE6F2C141E66002A2D02 /* MBHomeWelcomeView.swift */; };
 		FA36EE752C142DA9002A2D02 /* MBHomeTableViewHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA36EE742C142DA9002A2D02 /* MBHomeTableViewHeaderView.swift */; };
@@ -130,6 +130,7 @@
 		FA1ED09F2E2259DD00370614 /* MBImageVideoViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBImageVideoViewController.swift; sourceTree = "<group>"; };
 		FA201B362C526CDD001FEA76 /* SwiftyCameraMainViewController+LiveStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftyCameraMainViewController+LiveStream.swift"; sourceTree = "<group>"; };
 		FA2BA6A82C2D5AD8006C8193 /* MBHomeViewController+ImageProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MBHomeViewController+ImageProcess.swift"; sourceTree = "<group>"; };
+		D8593FABEABC4C72ABE22E51 /* MBHomeViewController+Warmup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MBHomeViewController+Warmup.swift"; sourceTree = "<group>"; };
 		FA35EE742C4901D30099EDC0 /* MBHomeViewController+CaptureVideo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MBHomeViewController+CaptureVideo.swift"; sourceTree = "<group>"; };
 		FA36EE6F2C141E66002A2D02 /* MBHomeWelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBHomeWelcomeView.swift; sourceTree = "<group>"; };
 		FA36EE742C142DA9002A2D02 /* MBHomeTableViewHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBHomeTableViewHeaderView.swift; sourceTree = "<group>"; };
@@ -237,7 +238,6 @@
 			files = (
 				FACB0D162C157A3200AFA999 /* libswiftCoreAudio.tbd in Frameworks */,
 				FA3FA2812C11784B0077F732 /* Metal.framework in Frameworks */,
-				FA2449642C3D0B7B0012D624 /* HXPhotoPicker in Frameworks */,
 				FA3FA27F2C1178440077F732 /* Accelerate.framework in Frameworks */,
 				FA24495E2C3D0B6B0012D624 /* SnapKit in Frameworks */,
 				FABA27252E2DD9B900651C44 /* llama.xcframework in Frameworks */,
@@ -409,6 +409,7 @@
 				FAE7CE482C25531F0080570C /* MBHomeViewController+UITextView.swift */,
 				FACAC2092C2D18B30085588E /* MBHomeViewController+CellToolBarEvent.swift */,
 				FA2BA6A82C2D5AD8006C8193 /* MBHomeViewController+ImageProcess.swift */,
+				D8593FABEABC4C72ABE22E51 /* MBHomeViewController+Warmup.swift */,
 				FADE92C92C3D1C36009FD00D /* MBHomeViewController+NavBarEvent.swift */,
 				FACAE9792C40D37900C557D6 /* MBHomeViewController+SendAction.swift */,
 				FACAE97B2C410C6100C557D6 /* MBHomeViewController+LoadModel.swift */,
@@ -717,7 +718,6 @@
 			name = "MiniCPM-V-demo";
 			packageProductDependencies = (
 				FA24495D2C3D0B6B0012D624 /* SnapKit */,
-				FA2449632C3D0B7B0012D624 /* HXPhotoPicker */,
 				FA1ED0A72E225D5A00370614 /* ZipArchive */,
 			);
 			productName = "MiniCPM-V-demo";
@@ -755,7 +755,6 @@
 			mainGroup = FA3FA25A2C1176E80077F732;
 			packageReferences = (
 				FA3D8FCE2C1FE7ED003DACDA /* XCRemoteSwiftPackageReference "SnapKit" */,
-				FA3D8FD42C1FE80F003DACDA /* XCRemoteSwiftPackageReference "HXPhotoPicker" */,
 				FA1ED0A62E225D5A00370614 /* XCRemoteSwiftPackageReference "ZipArchive" */,
 			);
 			productRefGroup = FA3FA2642C1176E80077F732 /* Products */;
@@ -870,6 +869,7 @@
 				FAD642902E2A223800088528 /* MTMDParams.swift in Sources */,
 				FAE7CE492C25531F0080570C /* MBHomeViewController+UITextView.swift in Sources */,
 				FA2BA6A92C2D5AD8006C8193 /* MBHomeViewController+ImageProcess.swift in Sources */,
+				49C5B2C8979B45C7A82F9587 /* MBHomeViewController+Warmup.swift in Sources */,
 				FA49BA112C32A1DD005660C4 /* MBUtils+checkMD5.swift in Sources */,
 				FA9AB0112F03000200E00011 /* MarkdownEscape.swift in Sources */,
 				FA9AB0212F03000200E00021 /* ImageSliceSetting.swift in Sources */,
@@ -1087,7 +1087,7 @@
 				CODE_SIGN_ENTITLEMENTS = "MiniCPM-V-demo/MiniCPM-V-demo.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2.0;
+				CURRENT_PROJECT_VERSION = 2.1;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = VGXUYC2C5K;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -1120,7 +1120,7 @@
 					"$(inherited)",
 					"$(SDKROOT)/usr/lib/swift",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tianchi.minicpmvdemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1142,7 +1142,7 @@
 				CODE_SIGN_ENTITLEMENTS = "MiniCPM-V-demo/MiniCPM-V-demo.entitlements";
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2.0;
+				CURRENT_PROJECT_VERSION = 2.1;
 				DEFINES_MODULE = YES;
 				DEVELOPMENT_TEAM = VGXUYC2C5K;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -1175,7 +1175,7 @@
 					"$(inherited)",
 					"$(SDKROOT)/usr/lib/swift",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 2.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.tianchi.minicpmvdemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1236,14 +1236,6 @@
 				version = 5.7.1;
 			};
 		};
-		FA3D8FD42C1FE80F003DACDA /* XCRemoteSwiftPackageReference "HXPhotoPicker" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SilenceLove/HXPhotoPicker.git";
-			requirement = {
-				kind = exactVersion;
-				version = 4.2.1;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1256,11 +1248,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FA3D8FCE2C1FE7ED003DACDA /* XCRemoteSwiftPackageReference "SnapKit" */;
 			productName = SnapKit;
-		};
-		FA2449632C3D0B7B0012D624 /* HXPhotoPicker */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = FA3D8FD42C1FE80F003DACDA /* XCRemoteSwiftPackageReference "HXPhotoPicker" */;
-			productName = HXPhotoPicker;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -508,103 +508,123 @@ class MBV4ModelDownloadManager: NSObject {
     
     // MARK: - MD5 校验方法
     
-    /// 校验 V4 主模型 MD5
+    /// 校验 V4 主模型 MD5（off-main，详见 V46 同款 verify 注释）
     private func verifyModelv4_Q4_K_M_MD5() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(MiniCPMModelConst.modelv4_Q4_K_M_FileName)
-        
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            if let checksum = MBUtils.md5(for: fileURL) {
-                debugLog("-->> V4主模型 实际MD5值: \(checksum)")
-                debugLog("-->> V4主模型 期望MD5值: \(MiniCPMModelConst.modelv4_Q4_K_M_MD5)")
-                
-                if checksum == MiniCPMModelConst.modelv4_Q4_K_M_MD5 {
-                    debugLog("-->> V4主模型 MD5校验成功: \(checksum)")
-                    modelv4_Q4_K_M_Manager?.status = "downloaded"
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let checksum = MBUtils.md5(for: fileURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let checksum = checksum {
+                    debugLog("-->> V4主模型 实际MD5值: \(checksum)")
+                    debugLog("-->> V4主模型 期望MD5值: \(MiniCPMModelConst.modelv4_Q4_K_M_MD5)")
+                    if checksum == MiniCPMModelConst.modelv4_Q4_K_M_MD5 {
+                        debugLog("-->> V4主模型 MD5校验成功: \(checksum)")
+                        self.modelv4_Q4_K_M_Manager?.status = "downloaded"
+                    } else {
+                        debugLog("-->> V4主模型 MD5校验失败")
+                        self.modelv4_Q4_K_M_Manager?.status = "download"
+                        self.deleteModelv4_Q4_K_M()
+                    }
                 } else {
-                    debugLog("-->> V4主模型 MD5校验失败")
-                    modelv4_Q4_K_M_Manager?.status = "download"
-                    deleteModelv4_Q4_K_M()
+                    debugLog("-->> V4主模型 MD5计算失败")
+                    self.modelv4_Q4_K_M_Manager?.status = "download"
+                    self.deleteModelv4_Q4_K_M()
                 }
-            } else {
-                debugLog("-->> V4主模型 MD5计算失败")
-                modelv4_Q4_K_M_Manager?.status = "download"
-                deleteModelv4_Q4_K_M()
             }
         }
     }
-    
-    /// 校验 V4 mmproj 模型 MD5
+
+    /// 校验 V4 mmproj 模型 MD5（off-main）
     private func verifyMMProjv4_MD5() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(MiniCPMModelConst.mmprojv4_FileName)
-        
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            if let checksum = MBUtils.md5(for: fileURL) {
-                debugLog("-->> V4 VIT模型 实际MD5值: \(checksum)")
-                debugLog("-->> V4 VIT模型 期望MD5值: \(MiniCPMModelConst.modelMMProjv4_MD5)")
-                
-                if checksum == MiniCPMModelConst.modelMMProjv4_MD5 {
-                    debugLog("-->> V4 VIT模型 MD5校验成功: \(checksum)")
-                    mmprojv4_Manager?.status = "downloaded"
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let checksum = MBUtils.md5(for: fileURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let checksum = checksum {
+                    debugLog("-->> V4 VIT模型 实际MD5值: \(checksum)")
+                    debugLog("-->> V4 VIT模型 期望MD5值: \(MiniCPMModelConst.modelMMProjv4_MD5)")
+                    if checksum == MiniCPMModelConst.modelMMProjv4_MD5 {
+                        debugLog("-->> V4 VIT模型 MD5校验成功: \(checksum)")
+                        self.mmprojv4_Manager?.status = "downloaded"
+                    } else {
+                        debugLog("-->> V4 VIT模型 MD5校验失败")
+                        self.mmprojv4_Manager?.status = "download"
+                        self.deleteMMProjv4()
+                    }
                 } else {
-                    debugLog("-->> V4 VIT模型 MD5校验失败")
-                    mmprojv4_Manager?.status = "download"
-                    deleteMMProjv4()
+                    debugLog("-->> V4 VIT模型 MD5计算失败")
+                    self.mmprojv4_Manager?.status = "download"
+                    self.deleteMMProjv4()
                 }
-            } else {
-                debugLog("-->> V4 VIT模型 MD5计算失败")
-                mmprojv4_Manager?.status = "download"
-                deleteMMProjv4()
             }
         }
     }
-    
-    /// 校验并解压 V4 ANE 模块
+
+    /// 校验并解压 V4 ANE 模块（off-main：MD5 + zip 解压都在 background 跑）
     private func verifyAndExtractMLModelcv4() {
         let fileURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(MiniCPMModelConst.mlmodelcv4_ZipFileName)
-        
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            if let checksum = MBUtils.md5(for: fileURL) {
-                debugLog("-->> V4 ANE模块 实际MD5值: \(checksum)")
-                debugLog("-->> V4 ANE模块 期望MD5值: \(MiniCPMModelConst.mlmodelcv4_ZipFileMD5)")
-                
-                if checksum == MiniCPMModelConst.mlmodelcv4_ZipFileMD5 {
-                    debugLog("-->> V4 ANE模块 MD5校验成功: \(checksum)")
-                    
-                    // 解压缩
-                    let destPath = getDocumentsDirectory().path
-                    if !destPath.isEmpty {
-                        var error: NSError?
-                        SSZipArchive.unzipFile(
-                            atPath: fileURL.path,
-                            toDestination: destPath,
-                            preserveAttributes: true,
-                            overwrite: true,
-                            password: nil,
-                            error: &error,
-                            delegate: nil
-                        )
-                        
-                        if let error = error {
-                            debugLog("-->> V4 ANE模块解压失败: \(error.localizedDescription)")
-                            mlmodelcv4_Manager?.status = "download"
-                            deleteMLModelcv4()
-                        } else {
-                            debugLog("-->> V4 ANE模块解压成功")
-                            mlmodelcv4_Manager?.status = "downloaded"
-                        }
-                    }
-                } else {
-                    debugLog("-->> V4 ANE模块 MD5校验失败")
-                    mlmodelcv4_Manager?.status = "download"
-                    deleteMLModelcv4()
-                }
-            } else {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?._verifyAndExtractMLModelcv4_offMain(fileURL: fileURL)
+        }
+    }
+
+    private func _verifyAndExtractMLModelcv4_offMain(fileURL: URL) {
+        guard let checksum = MBUtils.md5(for: fileURL) else {
+            DispatchQueue.main.async { [weak self] in
                 debugLog("-->> V4 ANE模块 MD5计算失败")
-                mlmodelcv4_Manager?.status = "download"
-                deleteMLModelcv4()
+                self?.mlmodelcv4_Manager?.status = "download"
+                self?.deleteMLModelcv4()
+            }
+            return
+        }
+
+        debugLog("-->> V4 ANE模块 实际MD5值: \(checksum)")
+        debugLog("-->> V4 ANE模块 期望MD5值: \(MiniCPMModelConst.mlmodelcv4_ZipFileMD5)")
+
+        guard checksum == MiniCPMModelConst.mlmodelcv4_ZipFileMD5 else {
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4 ANE模块 MD5校验失败")
+                self?.mlmodelcv4_Manager?.status = "download"
+                self?.deleteMLModelcv4()
+            }
+            return
+        }
+
+        let destPath = getDocumentsDirectory().path
+        guard !destPath.isEmpty else { return }
+
+        var error: NSError?
+        SSZipArchive.unzipFile(
+            atPath: fileURL.path,
+            toDestination: destPath,
+            preserveAttributes: true,
+            overwrite: true,
+            password: nil,
+            error: &error,
+            delegate: nil
+        )
+
+        if let error = error {
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4 ANE模块解压失败: \(error.localizedDescription)")
+                self?.mlmodelcv4_Manager?.status = "download"
+                self?.deleteMLModelcv4()
+            }
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4 ANE模块解压成功")
+                self?.mlmodelcv4_Manager?.status = "downloaded"
             }
         }
     }

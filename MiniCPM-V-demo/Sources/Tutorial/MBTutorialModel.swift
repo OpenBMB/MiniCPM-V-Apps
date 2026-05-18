@@ -27,6 +27,24 @@ struct MBTutorialStep {
 
 enum MBTutorialContent {
 
+    /// Async prewarm of the tutorial step screenshots so the first push of
+    /// MBTutorialViewController doesn't synchronously decode 4 × ~1-3 MiB
+    /// PNGs in the middle of the navigation transition (which the user
+    /// feels as a 200-400 ms "stutter" when they tap the tutorial button).
+    ///
+    /// Safe + cheap to call from anywhere — UIImage(named:) caches are
+    /// thread-safe for read, and we just discard the returned UIImage.
+    /// Recommended call site: MBHomeViewController.viewDidLoad once.
+    static func prewarmScreenshotsInBackground() {
+        let assetNames = steps().compactMap { $0.screenshotAsset }
+        DispatchQueue.global(qos: .utility).async {
+            for name in assetNames {
+                _ = UIImage(named: name)
+            }
+        }
+    }
+
+
     static func steps() -> [MBTutorialStep] {
         return [
             MBTutorialStep(

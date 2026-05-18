@@ -389,72 +389,99 @@ class MBV46ModelDownloadManager: NSObject {
     private func verifyModelv46_Q4_K_M_MD5() {
         let fileURL = getDocumentsDirectory().appendingPathComponent(MiniCPMModelConst.modelv46_FileName)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        
-        if let checksum = MBUtils.md5(for: fileURL) {
-            debugLog("-->> V4.6 主模型 实际 MD5: \(checksum)")
-            debugLog("-->> V4.6 主模型 期望 MD5: \(MiniCPMModelConst.modelv46_Q4_K_M_MD5)")
-            
-            if checksum == MiniCPMModelConst.modelv46_Q4_K_M_MD5 {
-                debugLog("-->> V4.6 主模型 MD5 校验成功")
-                modelv46_Q4_K_M_Manager?.status = "downloaded"
-                setDownloadStatus(.completed, for: "v46_main_model")
-            } else {
-                debugLog("-->> V4.6 主模型 MD5 校验失败")
-                modelv46_Q4_K_M_Manager?.status = "download"
-                deleteModelv46_Q4_K_M()
+
+        // MD5 一个 0.5 GiB 文件在 iPhone 上要好几秒，过去这段直接跑在 main 上
+        // 触发了用户感受到的"下载完成那一刻 UI 卡死"。挪到 userInitiated background
+        // 队列算，算完再回 main 改 status / 触发 deleteAction —— 后续 UI 操作仍在
+        // main，但不阻塞用户后续点按钮。
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let checksum = MBUtils.md5(for: fileURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let checksum = checksum {
+                    debugLog("-->> V4.6 主模型 实际 MD5: \(checksum)")
+                    debugLog("-->> V4.6 主模型 期望 MD5: \(MiniCPMModelConst.modelv46_Q4_K_M_MD5)")
+                    if checksum == MiniCPMModelConst.modelv46_Q4_K_M_MD5 {
+                        debugLog("-->> V4.6 主模型 MD5 校验成功")
+                        self.modelv46_Q4_K_M_Manager?.status = "downloaded"
+                        self.setDownloadStatus(.completed, for: "v46_main_model")
+                    } else {
+                        debugLog("-->> V4.6 主模型 MD5 校验失败")
+                        self.modelv46_Q4_K_M_Manager?.status = "download"
+                        self.deleteModelv46_Q4_K_M()
+                    }
+                } else {
+                    debugLog("-->> V4.6 主模型 MD5 计算失败")
+                    self.modelv46_Q4_K_M_Manager?.status = "download"
+                    self.deleteModelv46_Q4_K_M()
+                }
             }
-        } else {
-            debugLog("-->> V4.6 主模型 MD5 计算失败")
-            modelv46_Q4_K_M_Manager?.status = "download"
-            deleteModelv46_Q4_K_M()
         }
     }
-    
+
     private func verifyMMProjv46_MD5() {
         let fileURL = getDocumentsDirectory().appendingPathComponent(MiniCPMModelConst.mmprojv46_FileName)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        
-        if let checksum = MBUtils.md5(for: fileURL) {
-            debugLog("-->> V4.6 VIT 模型 实际 MD5: \(checksum)")
-            debugLog("-->> V4.6 VIT 模型 期望 MD5: \(MiniCPMModelConst.modelMMProjv46_MD5)")
-            
-            if checksum == MiniCPMModelConst.modelMMProjv46_MD5 {
-                debugLog("-->> V4.6 VIT 模型 MD5 校验成功")
-                mmprojv46_Manager?.status = "downloaded"
-                setDownloadStatus(.completed, for: "v46_mmproj_model")
-            } else {
-                debugLog("-->> V4.6 VIT 模型 MD5 校验失败")
-                mmprojv46_Manager?.status = "download"
-                deleteMMProjv46()
+
+        // MD5 1.1 GiB mmproj 在 iPhone 上 4-8 秒（之前 main 卡死的元凶）。同上策略。
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let checksum = MBUtils.md5(for: fileURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let checksum = checksum {
+                    debugLog("-->> V4.6 VIT 模型 实际 MD5: \(checksum)")
+                    debugLog("-->> V4.6 VIT 模型 期望 MD5: \(MiniCPMModelConst.modelMMProjv46_MD5)")
+                    if checksum == MiniCPMModelConst.modelMMProjv46_MD5 {
+                        debugLog("-->> V4.6 VIT 模型 MD5 校验成功")
+                        self.mmprojv46_Manager?.status = "downloaded"
+                        self.setDownloadStatus(.completed, for: "v46_mmproj_model")
+                    } else {
+                        debugLog("-->> V4.6 VIT 模型 MD5 校验失败")
+                        self.mmprojv46_Manager?.status = "download"
+                        self.deleteMMProjv46()
+                    }
+                } else {
+                    debugLog("-->> V4.6 VIT 模型 MD5 计算失败")
+                    self.mmprojv46_Manager?.status = "download"
+                    self.deleteMMProjv46()
+                }
             }
-        } else {
-            debugLog("-->> V4.6 VIT 模型 MD5 计算失败")
-            mmprojv46_Manager?.status = "download"
-            deleteMMProjv46()
         }
     }
     
     private func verifyAndExtractMLModelcv46() {
         let fileURL = getDocumentsDirectory().appendingPathComponent(MiniCPMModelConst.mlmodelcv46_ZipFileName)
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-        
+
+        // MD5 + zip 解压 1+ GiB 全在 background 跑，跟 verifyModelv46_Q4_K_M_MD5 同款策略。
+        // SSZipArchive.unzipFile 解 1 GB 包大约 5-15 s，绝对不能在 main 跑。
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?._verifyAndExtractMLModelcv46_offMain(fileURL: fileURL)
+        }
+    }
+
+    private func _verifyAndExtractMLModelcv46_offMain(fileURL: URL) {
         guard let checksum = MBUtils.md5(for: fileURL) else {
-            debugLog("-->> V4.6 ANE 模块 MD5 计算失败")
-            mlmodelcv46_Manager?.status = "download"
-            deleteMLModelcv46()
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4.6 ANE 模块 MD5 计算失败")
+                self?.mlmodelcv46_Manager?.status = "download"
+                self?.deleteMLModelcv46()
+            }
             return
         }
-        
+
         debugLog("-->> V4.6 ANE 模块 实际 MD5: \(checksum)")
         debugLog("-->> V4.6 ANE 模块 期望 MD5: \(MiniCPMModelConst.mlmodelcv46_ZipFileMD5)")
-        
+
         guard checksum == MiniCPMModelConst.mlmodelcv46_ZipFileMD5 else {
-            debugLog("-->> V4.6 ANE 模块 MD5 校验失败")
-            mlmodelcv46_Manager?.status = "download"
-            deleteMLModelcv46()
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4.6 ANE 模块 MD5 校验失败")
+                self?.mlmodelcv46_Manager?.status = "download"
+                self?.deleteMLModelcv46()
+            }
             return
         }
-        
+
         let destPath = getDocumentsDirectory().path
         var error: NSError?
         SSZipArchive.unzipFile(
@@ -468,19 +495,24 @@ class MBV46ModelDownloadManager: NSObject {
         )
         
         if let error = error {
-            debugLog("-->> V4.6 ANE 模块解压失败: \(error.localizedDescription)")
-            mlmodelcv46_Manager?.status = "download"
-            deleteMLModelcv46()
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4.6 ANE 模块解压失败: \(error.localizedDescription)")
+                self?.mlmodelcv46_Manager?.status = "download"
+                self?.deleteMLModelcv46()
+            }
             return
         }
 
         guard isMLModelcReady() else {
-            debugLog("-->> V4.6 ANE 模块解压后目录为空或缺失，视为失败")
-            mlmodelcv46_Manager?.status = "download"
-            deleteMLModelcv46()
+            DispatchQueue.main.async { [weak self] in
+                debugLog("-->> V4.6 ANE 模块解压后目录为空或缺失，视为失败")
+                self?.mlmodelcv46_Manager?.status = "download"
+                self?.deleteMLModelcv46()
+            }
             return
         }
 
+        // zip 删除属于 disk IO，留在 background 跑完，UI 只关心最终的 status。
         do {
             try FileManager.default.removeItem(at: fileURL)
             debugLog("-->> V4.6 ANE 模块 zip 已删除（解压后不再需要）")
@@ -488,9 +520,11 @@ class MBV46ModelDownloadManager: NSObject {
             debugLog("-->> V4.6 ANE 模块 zip 删除失败: \(error.localizedDescription)")
         }
 
-        debugLog("-->> V4.6 ANE 模块解压成功")
-        mlmodelcv46_Manager?.status = "downloaded"
-        setDownloadStatus(.completed, for: "v46_ane_module")
+        DispatchQueue.main.async { [weak self] in
+            debugLog("-->> V4.6 ANE 模块解压成功")
+            self?.mlmodelcv46_Manager?.status = "downloaded"
+            self?.setDownloadStatus(.completed, for: "v46_ane_module")
+        }
     }
     
     // MARK: - 删除方法

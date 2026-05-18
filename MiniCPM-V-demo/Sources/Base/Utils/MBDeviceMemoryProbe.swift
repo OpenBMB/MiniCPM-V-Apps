@@ -78,6 +78,44 @@ import Darwin
             }
         }
 
+        /// Recommended `n_ctx` for the LLM context (in tokens).
+        ///
+        /// Each token of MiniCPM-V 4.6 KV cache is **12 KiB**:
+        ///   - 24 layers, but only every 4th is full attention (24/4 = 6 attn layers,
+        ///     the other 18 are SSM and DON'T scale with n_ctx)
+        ///   - 6 attn × 2 (k+v) × 2 (n_head_kv, GQA) × 256 (head_dim) × 2 B (f16) = 12 KiB
+        /// So the cost is exactly:
+        ///
+        ///   n_ctx=4096  →  48 MiB
+        ///   n_ctx=8192  →  96 MiB
+        ///   n_ctx=16384 → 192 MiB
+        ///   n_ctx=32768 → 384 MiB
+        ///   n_ctx=65536 → 768 MiB
+        ///
+        /// Tier choice tradeoffs:
+        ///   - n_ctx must hold the worst-case prefill: V4.6 video path is 64 frames ×
+        ///     ~64 visual tokens/frame = 4096 image tokens, plus the system + first
+        ///     user turn + assistant prefix (~200 tokens), plus headroom for a couple
+        ///     of follow-up turns.  Below ~6000 the video path is at risk of overflow.
+        ///   - Each extra 4K of n_ctx costs +48 MiB MTL0 KV; on a 4 GiB iPhone whose
+        ///     jetsam ceiling sits around 1.4 GiB, that pushes against the same budget
+        ///     n_ubatch / mmproj working set already eats.
+        ///   - Single-image / short-chat scenarios are insensitive to n_ctx, but very
+        ///     long contexts push attention compute to O(N²) per token (FlashAttention
+        ///     fixes the memory but not the FLOPs), making *late-frame* video prefill
+        ///     visibly slower at 32K than at 8K.
+        ///
+        /// 8K is the floor (must hold a V4.6 video turn); we double per tier so a Pro
+        /// device with plenty of headroom gets longer history without blowing budget.
+        public var recommendedNCtx: Int {
+            switch self {
+            case .tiny:   return 8192    //  ~96 MiB KV
+            case .small:  return 16384   // ~192 MiB KV
+            case .medium: return 32768   // ~384 MiB KV
+            case .large:  return 32768   // 32K is the sweet spot — beyond this attention O(N²) dominates without TPS win
+            }
+        }
+
         /// Recommended `image_max_tokens` for mtmd.  Returns -1 ("model
         /// default") on every tier — see explanation below.
         ///
@@ -159,6 +197,10 @@ import Darwin
 
     /// Convenience wrapper: the n_ubatch we want MTMDParams.toCParams() to use.
     @objc public static var recommendedUbatch: Int { currentTier.recommendedUbatch }
+
+    /// Convenience: tier-recommended `n_ctx` for the LLM context.
+    /// See `Tier.recommendedNCtx` for tier→value table and tradeoff notes.
+    @objc public static var recommendedNCtx: Int { currentTier.recommendedNCtx }
 
     private static func computeInitialTier() -> Tier {
         let avail = availableProcessBytes

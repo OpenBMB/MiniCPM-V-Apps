@@ -35,6 +35,19 @@ import SnapKit
 
         steps = MBTutorialContent.steps()
 
+        // 教程截图预热：4 张 1-3 MiB 的手机截屏 PNG，cellForRow 里如果首次同步
+        // 调 UIImage(named:) 会一张张在 main thread 解码，每张几十 ms，叠加 4 张
+        // 正好挤进 navigationController push 的转场动画窗口，用户感受就是
+        // "点教程按钮停顿一下才出现"。这里在 background 队列把 4 张全 prefetch
+        // 一遍 —— UIImage(named:) 自带的全局 cache 是 thread-safe，warm 之后
+        // cellForRow 下面的同名调用直接 cache hit (~µs)，转场动画不再被卡。
+        let assetNames = steps.compactMap { $0.screenshotAsset }
+        DispatchQueue.global(qos: .userInitiated).async {
+            for name in assetNames {
+                _ = UIImage(named: name)
+            }
+        }
+
         view.addSubview(tableView)
         tableView.snp.makeConstraints { make in
             make.edges.equalToSuperview()

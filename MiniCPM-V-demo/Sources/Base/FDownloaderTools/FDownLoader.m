@@ -103,7 +103,17 @@ static NSString * MBSafeCacheFileName(NSURL *url) {
         // making the user stare at a stuck UI for two minutes.
         config.timeoutIntervalForRequest = 60;
         config.timeoutIntervalForResource = 0;
-        _session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:[NSOperationQueue mainQueue]];
+        // delegateQueue:nil tells NSURLSession to create its own serial
+        // background OperationQueue for all delegate callbacks.  Used to
+        // be `[NSOperationQueue mainQueue]`, which made every
+        // didReceiveData / outputStream-write / progress callback fire on
+        // the main thread — at 25 MB/s of incoming bytes that's ~400
+        // hits/sec hammering UIKit's runloop, and the user feels every
+        // tap take an extra beat to register.  Now downloads run entirely
+        // off-main; the upstream MBModelDownloadHelperV2 callbacks
+        // already wrap their own UI updates in DispatchQueue.main.async
+        // so this swap is contract-compatible.
+        _session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:nil];
     }
     return _session;
 }

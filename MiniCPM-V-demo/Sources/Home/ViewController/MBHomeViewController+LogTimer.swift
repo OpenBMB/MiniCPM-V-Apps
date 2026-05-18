@@ -28,7 +28,13 @@ extension MBHomeViewController {
             // 用 RunLoop.main.add(_:forMode:.common) 而不是 scheduledTimer，
             // 既显式声明 RunLoop，也保证滚动 UITableView 时（tracking mode）
             // timer 仍然 fire。
-            let t = Timer(timeInterval: 0.1,
+            //
+            // interval 选 0.5s（2 Hz）—— 之前是 0.1s（10 Hz），视频抽帧期间每秒 10 次
+            // cellForRow + bindImageWith + property writes 持续吃 main runloop slot，
+            // 用户点别的按钮时延迟可感。0.5s 已经足够看见进度条 tick 跳动 + 文字
+            // 实时累积，但把 main 上的额外干扰降低 5×。logTimeSecond 跟着 step 改成
+            // 0.5（见 logTimerFire），保持耗时显示的基线一致。
+            let t = Timer(timeInterval: 0.5,
                           target: self,
                           selector: #selector(self.logTimerFire),
                           userInfo: nil,
@@ -48,7 +54,9 @@ extension MBHomeViewController {
         
         // find image cell and update log
         DispatchQueue.main.async {
-            self.logTimeSecond += 0.1
+            // 步进必须跟 startLogTimer 里的 timeInterval 对齐，否则 logTimeSecond
+            // 跟墙钟脱节，后续基于 logTimeSecond 算的进度百分比会失真。
+            self.logTimeSecond += 0.5
             if self.dataArray.count > 0 {
                 if let latestCell = self.tableView.cellForRow(at: IndexPath(row: self.dataArray.count - 1, section: 0)) as? MBImageTableViewCell {
                     if latestCell.model?.role == "user",

@@ -8,7 +8,8 @@
 import UIKit
 import SnapKit
 import Combine
-import HXPhotoPicker
+import AVKit
+import PhotosUI
 import llama
 
 /// 首页 VC
@@ -58,8 +59,15 @@ import llama
     /// 在富文本编辑器模式下，处理多张图片时，要把图片耗时记下来
     var cachedImageEmbeddingPerfLog = [String: String]()
     
-    /// 如果选中了视频，将来查看视频的时候，HXPhotoPicker 组件需要 PhotoAsset 格式的数据
-    var cachedPhotoAssets = [String: PhotoAsset]()
+    /// 缓存"用户从相册选过的视频"的本地路径，key 是 cell 上挂的 imageURL string，value
+    /// 是我们自己 copy 出来的 .mov 路径。
+    ///
+    /// 早期用 HXPhotoPicker 时，这里存的是 `PhotoAsset`（picker 框架自己的类型，可以
+    /// 直接喂给 `PhotoBrowser.show()`）。换到苹果原生 PHPicker 后我们不再持有
+    /// PHAsset / PhotoAsset，picker 给的临时 URL 在 dismiss 后会失效，所以
+    /// `handleChooseImage` 会把视频 copy 到 caches 目录再把那个路径塞进来。预览时
+    /// 直接 `AVPlayerViewController(player: AVPlayer(url:))` 拉起。
+    var cachedVideoURLs = [String: URL]()
 
     /// 如果选中的视频，则 embed 视频时，时长要按视频抽取的帧数来处理（在 +LogTimer.swift 中使用）
     var totalVideoFrameCount: Int = 0
@@ -245,6 +253,20 @@ import llama
         super.viewDidLoad()
 
         self.view.backgroundColor = UIColor.mb_color(with: "#F9FAFC")
+
+        // 教程截图后台预热：4 张手机截屏 PNG，UIImage(named:) 首次解码各几十 ms。
+        // 在 home VC 一启动就 prewarm，等用户点导航上的"教程"按钮时 UIKit 内置
+        // image cache 已经 warm，cell 的 UIImage(named:) 直接 hit (~µs)，转场动画
+        // 不再被同步解码挤压。utility QoS 不抢占 init 路径上的 mtmd / Metal 编译。
+        MBTutorialContent.prewarmScreenshotsInBackground()
+
+        // 切片 alert + PHPicker 首次拉起的"按了之后停顿一下"延迟根因（详见
+        // warmUpSystemPresentations 的 doc comment）：UIKit 系统组件 +
+        // PhotoUI.framework + pickerd XPC service 的懒加载。home VC 显示完之后
+        // 1.5s 异步触发一次"隐式 present 立刻 dismiss"，让这些子系统提前 warm。
+        // 1.5s 延时是为了让位给模型 init 路径（mtmd_init + Metal kernel 编译），
+        // 不抢同一时间窗的 main thread。
+        warmUpSystemPresentations()
 
         // 不要把 mtmdWrapperExample 的创建 + sink 注册放在 `Task { ... }` 里。
         // 三个调用本身都是同步立刻返回的（checkMultiModelLoad… 内部用
@@ -680,9 +702,15 @@ import llama
                 cell.onTapImageCover = { [weak self] img, imageURLString in
                     if let keyStr = imageURLString,
                         !keyStr.isEmpty,
-                       let photoAsset = self?.cachedPhotoAssets[keyStr], photoAsset.mediaType == .video {
-                        // 视频使用单独播放器进行预览
-                        HXPhotoPicker.PhotoBrowser.show([photoAsset])
+                       let videoURL = self?.cachedVideoURLs[keyStr] {
+                        // 视频用 AVKit 系统播放器预览（取代了之前 HXPhotoPicker.PhotoBrowser）
+                        let player = AVPlayer(url: videoURL)
+                        let playerVC = AVPlayerViewController()
+                        playerVC.player = player
+                        playerVC.modalPresentationStyle = .fullScreen
+                        self?.present(playerVC, animated: true) {
+                            player.play()
+                        }
                     } else if imageURLString?.hasSuffix(".mov") == true {
                         if let s = imageURLString, let url = URL(string: s) {
                             // 如果是录像生成的视频，则用 SwiftyCamera 进行预览
@@ -838,7 +866,7 @@ import llama
         dataArray.append(textModel)
     }
     
-    /// 添加一个 图片 cell 到 tableview 里，注意：photoAsset 是 HXPhotoPickerSwift 组件中的类型
+    /// 添加一个 图片 cell 到 tableview 里。若是视频，imageURL 写视频本地路径（同时挂在 cachedVideoURLs 里）。
     func appendImageDataToCellWith(image: UIImage?, imageURL: String? = nil) {
         let imgModel = MBChatModel()
         imgModel.type = "IMAGE"

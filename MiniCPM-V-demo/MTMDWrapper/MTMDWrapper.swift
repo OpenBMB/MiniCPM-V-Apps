@@ -305,6 +305,26 @@ public class MTMDWrapper: ObservableObject {
         
         print("MTMDWrapper: 上下文已重置")
     }
+
+    /// 仅清 KV cache + n_past=0，**保留** mtmd_context / llama_context / sampler 不重建。
+    ///
+    /// 用途：开启一段独立的 prefill turn（例如视频抽帧、跨场景切换），跟 Python
+    /// 端 minicpm-v 的 `model.chat(msgs=[...], ...)` 行为对齐——每次 chat 调用都从
+    /// 干净的 KV 开始，不带前序对话历史。这样可以避免：
+    ///   1. n_ctx 溢出：长对话累积 + 视频抽帧 80+ token/帧 很容易顶到 n_ctx=8192，
+    ///      触发 llama_decode 失败；MiniCPM-V 4.6 的 hybrid SSM+Attn 模型上，单
+    ///      chunk 失败后 KV 无法 partial truncate（SSM 不支持），整 ctx 就废了；
+    ///   2. M-RoPE 一致性裂缝：同上 root cause 的连环失败。
+    ///
+    /// 比起 `reset()` 这种"销毁 ctx + 重新 init"的重操作，这里只是 O(1) 调
+    /// `llama_memory_seq_rm(seq=0, p0=0, p1=-1)`，毫秒级，不需要重新 load 模型。
+    public func clearKVCacheForNewTurn() {
+        guard let ctx = context else { return }
+        let ok = mb_mtmd_clean_kv_cache(ctx)
+        print("MTMDWrapper: clearKVCacheForNewTurn -> \(ok)")
+        // 同步 Swift 侧的"有内容"标志，避免 startGeneration 因为旧标志而尝试用空 KV 跑
+        hasContent = false
+    }
     
     /// 清理资源
     public func cleanup() async {

@@ -81,7 +81,7 @@ extension MBHomeViewController {
             self?.thinking = false
             
             self?.cachedImageEmbeddingPerfLog.removeAll()
-            self?.cachedPhotoAssets.removeAll()
+            self?.cachedVideoURLs.removeAll()
             
             Task {
                 // 重置多图模型加载状态

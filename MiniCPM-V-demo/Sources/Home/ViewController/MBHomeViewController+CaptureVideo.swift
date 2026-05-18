@@ -120,6 +120,15 @@ extension MBHomeViewController {
             return
         }
 
+        // 视频开 turn 前先把 KV 清干净，跟 Python 端 model.chat(msgs=[...]) 行为对齐
+        // ——视频是"新一段对话"，不携带前序图文 chat 历史。这样还顺带规避了 n_ctx 溢出：
+        // 长对话累积到接近 n_ctx 上限时，再叠加几十帧 × 几十 token/帧的视频 prefill
+        // 必然撞 llama_decode 失败，而 MiniCPM-V 4.6 的 hybrid SSM+Attn 模型一旦
+        // mid-prefill 失败、KV 又无法 partial truncate (SSM 不支持)，整个 ctx 就死锁
+        // 在 "X(KV) >= Y(n_past) 永远不变" 的状态里，所有后续 prefill_text /
+        // prefill_frame 都连环失败 (M-RoPE 一致性检查)。
+        self.mtmdWrapperExample?.clearKVCacheForNewTurn()
+
         // 保存这一轮视频抽帧的数量，用以进度条更新处理
         self.totalVideoFrameCount = images.count
 

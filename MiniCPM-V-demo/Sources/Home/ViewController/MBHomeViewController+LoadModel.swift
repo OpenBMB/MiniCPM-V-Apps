@@ -91,15 +91,16 @@ extension MBHomeViewController {
                     // 这里仍保留 resolvedCoreMLPathInDocuments() —— 老用户磁盘上若残留 mlmodelc，
                     // 自动 pick up 走 CoreML/Metal；否则返回 nil，C++ 层退到 ggml/Metal 路径。
                     let coremlPath = MiniCPMV46CoreMLBootstrap.resolvedCoreMLPathInDocuments()
-                    // V4.6 视频路径专属：64 帧 × slice=1 × 64 visual token = 4096，
-                    // 4096 ctx 会被顶死并溢出 KV。8192 给 system prompt / 多轮
-                    // 追问留足余量；v46 max_pos ≥ 32K，模型侧没问题。
-                    // 老的 V2.6 / V4.0 保持 4096 默认以避免低内存设备压力。
+                    // V4.6 nCtx：之前 hardcode 8192 是为了给"64 帧 × ~64 visual token = 4096"
+                    // 的视频路径留足余量；现在改成按设备 tier 走 MBDeviceMemoryProbe.recommendedNCtx，
+                    // 4 GB iPhone 仍是 8K 守底线、8 GB+ Pro 拉到 32K 享受更长历史。每多 4K
+                    // 大约 +48 MiB MTL0 KV，详见 MBDeviceMemoryProbe.recommendedNCtx 注释。
+                    let nCtx = MBDeviceMemoryProbe.recommendedNCtx
                     await self.mtmdWrapperExample?.initialize(
                         modelPath: modelURL.path,
                         mmprojPath: mmprojURL.path,
                         coremlPath: coremlPath,
-                        nCtx: 8192
+                        nCtx: nCtx
                     )
                 }
 

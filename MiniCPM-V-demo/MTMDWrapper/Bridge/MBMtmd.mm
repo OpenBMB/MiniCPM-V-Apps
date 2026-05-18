@@ -327,6 +327,49 @@ void mb_mtmd_set_image_max_slice_nums(mb_mtmd_context * /*ctx*/, int /*n*/) {
 }
 
 // ---------------------------------------------------------------------------
+//  Memory rollback helper
+// ---------------------------------------------------------------------------
+
+// Roll the KV / SSM state back to (or past, if necessary) `start_n_past`
+// after a partially-applied prefill failure.
+//
+// `llama_memory_seq_rm(seq, p0, -1)` is documented to "Return false if a
+// partial sequence cannot be removed. Removing a whole sequence never
+// fails."  MiniCPM-V 4.6's LLM (Qwen3-Mamba) is a hybrid SSM + Attention
+// model — the SSM half streams state and has no per-token slot concept,
+// so partial truncation at p0 > 0 is physically unsupported and the call
+// returns false leaving the KV at whatever last position the half-applied
+// prefill left it at.
+//
+// When that happens we have no choice but to wipe the entire sequence and
+// reset `ctx->n_past = 0`.  That throws away the conversation history so
+// far, but it leaves the ctx in a consistent state instead of an
+// "every future prefill fails forever" zombie state, which is the
+// failure mode the user actually hits when the upstream M-RoPE
+// X < Y check trips (see prefill_image_like / prefill_text comments).
+//
+// Returns true if a clean partial rollback succeeded (best-case;
+// happens on pure-attention models).  Returns false if we had to do the
+// full wipe (signals to the caller that ctx->n_past is now 0).
+static bool rollback_to_n_past(mb_mtmd_context * ctx, llama_pos start_n_past) {
+    llama_memory_t mem = llama_get_memory(ctx->lctx.get());
+    if (start_n_past > 0) {
+        if (llama_memory_seq_rm(mem, /*seq=*/0, /*p0=*/start_n_past, /*p1=*/-1)) {
+            ctx->n_past = start_n_past;
+            return true;
+        }
+        fprintf(stderr, "[MBMtmd] partial rollback to n_past=%d unsupported by this memory module (likely SSM/hybrid); falling back to full wipe.\n",
+                static_cast<int>(start_n_past));
+    }
+    // Either start_n_past == 0 (nothing to rewind anyway) or partial removal
+    // refused.  Wipe the whole sequence — guaranteed to succeed by the
+    // llama.h contract.
+    llama_memory_seq_rm(mem, /*seq=*/0, /*p0=*/0, /*p1=*/-1);
+    ctx->n_past = 0;
+    return false;
+}
+
+// ---------------------------------------------------------------------------
 //  Prefill helpers
 // ---------------------------------------------------------------------------
 
@@ -368,17 +411,29 @@ static int prefill_image_like(mb_mtmd_context * ctx,
         return -1;
     }
 
-    llama_pos new_n_past = ctx->n_past;
+    const llama_pos start_n_past = ctx->n_past;
+    llama_pos new_n_past = start_n_past;
     int32_t   ev = mtmd_helper_eval_chunks(ctx->vision.get(),
                                            ctx->lctx.get(),
                                            chunks,
-                                           ctx->n_past,
+                                           start_n_past,
                                            /*seq_id=*/0,
                                            ctx->n_batch,
                                            /*logits_last=*/false,
                                            &new_n_past);
     if (ev != 0) {
-        set_error(ctx, std::string(caller_label) + ": mtmd_helper_eval_chunks failed, ret=" + std::to_string(ev));
+        // mtmd_helper_eval_chunks 是部分原子的：前 i-1 个 chunk 可能已经成功 decode
+        // 并把 KV 推进到 start_n_past 之后某个位置；如果只是 return -1 而不动 KV，
+        // ctx->n_past 跟 KV 就裂开了，对 M-RoPE / hybrid SSM+Attn 模型（MiniCPM-V
+        // 4.6 LLM 是 Qwen3-Mamba）下次 llama_decode 必定撞硬性一致性检查
+        // "for M-RoPE, it is required that X < Y"，之后所有 prefill 连环失败。
+        // 详细 fallback 策略见 rollback_to_n_past 的 doc comment（partial truncate
+        // 在 SSM 路径上 unsupported，会自动 fallback 到全清 + n_past=0）。
+        const bool clean_rollback = rollback_to_n_past(ctx, start_n_past);
+        const std::string suffix = clean_rollback
+            ? " (KV rolled back to n_past=" + std::to_string(start_n_past) + ")"
+            : " (partial rollback unsupported on SSM/hybrid; full wipe + n_past=0; conversation history cleared)";
+        set_error(ctx, std::string(caller_label) + ": mtmd_helper_eval_chunks failed, ret=" + std::to_string(ev) + suffix);
         return -1;
     }
 
@@ -437,18 +492,25 @@ int mb_mtmd_prefill_text(mb_mtmd_context * ctx, const char * text_in, const char
         return -1;
     }
 
-    llama_pos new_n_past = ctx->n_past;
+    const llama_pos start_n_past = ctx->n_past;
+    llama_pos new_n_past = start_n_past;
     // logits_last=true so the next mb_mtmd_loop call has fresh logits to sample.
     int32_t ev = mtmd_helper_eval_chunks(ctx->vision.get(),
                                          ctx->lctx.get(),
                                          chunks,
-                                         ctx->n_past,
+                                         start_n_past,
                                          /*seq_id=*/0,
                                          ctx->n_batch,
                                          /*logits_last=*/true,
                                          &new_n_past);
     if (ev != 0) {
-        set_error(ctx, "prefill_text: mtmd_helper_eval_chunks failed, ret=" + std::to_string(ev));
+        // 同 prefill_image_like 的回滚策略；SSM/hybrid 模型下 partial truncate 不
+        // 支持时会自动 fallback 到全清 + n_past=0。
+        const bool clean_rollback = rollback_to_n_past(ctx, start_n_past);
+        const std::string suffix = clean_rollback
+            ? " (KV rolled back to n_past=" + std::to_string(start_n_past) + ")"
+            : " (partial rollback unsupported on SSM/hybrid; full wipe + n_past=0; conversation history cleared)";
+        set_error(ctx, "prefill_text: mtmd_helper_eval_chunks failed, ret=" + std::to_string(ev) + suffix);
         return -1;
     }
 
