@@ -44,6 +44,7 @@ extension LocalizationManager {
         L.Settings.rowLookaheadPrefetchDepth:         "预读专家数",
         L.Settings.rowDspark:            "DSpark 投机解码",
         L.Settings.rowAbout:             "关于我们",
+        L.Settings.rowBenchmark:         "批量基准测试",
         L.Settings.dsparkHint:           "草稿模型一次起草多个 token、由目标模型整批裁定。开启后预读专家数与窗口**保持不变**（引擎侧四处闸门已修，两者可同时开；可用下面那行「预读专家数」做对照）。注意三点：① 草稿模型（Q8，405 MB）不随主模型下载，打开本开关后会提示下载；② 窗口只覆盖 4 行左右的小内存设备上，需配合 -moeTextOnly 启动（不加载 mmproj），否则「窗口 + 草稿 + mmproj」会超出内存限额被杀；③ 改完要重载模型才生效。",
         L.Settings.dsparkDraftMissingTitle:   "需要下载草稿模型",
         L.Settings.dsparkDraftMissingBody:    "草稿模型不在主模型的完整性检查范围内，缺了不会报错，只会让投机解码静默失效 —— 表现就是「开关打开了但速度没变」。",

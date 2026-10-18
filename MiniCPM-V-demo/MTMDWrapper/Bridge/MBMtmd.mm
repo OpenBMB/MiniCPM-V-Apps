@@ -473,10 +473,15 @@ static void mb_llama_log(enum ggml_log_level level, const char * text, void * /*
                 g_last_llama_error.pop_back();
             }
         }
-        // 引擎的 MoE 诊断（`[moe-ssd] ...`）只走 stderr，而 iOS 上 app 进程的 stderr
-        // 既进不了 unified log、也进不了沙盒文件 —— 真机上等于看不到。这里把这一族
-        // 单独镜像进 mb_run_log.txt，其余 llama 日志不落盘（否则会被 lv4 的噪声淹没）。
-        if (strstr(text, "[moe-ssd]")) {
+        // 引擎的 MoE 诊断（`[moe-ssd] ...`、`[fw] ...`）只走 stderr，而 iOS 上
+        // app 进程的 stderr 既进不了 unified log、也进不了沙盒文件 —— 真机上等于
+        // 看不到。这里把这两族单独镜像进 mb_run_log.txt，其余 llama 日志不落盘
+        // （否则会被 lv4 的噪声淹没）。
+        //
+        // `[fw]` 是 `LLAMA_FW_PROBE=1` 时每次前向往 stderr 打的一行 I/O 计数
+        // （miss / mib / uniq），是批量基准测试里「每帧实际从 SSD 读了多少」的
+        // 唯一数据源 —— 少镜像这一族，跑完只有耗时、没有 I/O 量，无法解释快慢。
+        if (strstr(text, "[moe-ssd]") || strstr(text, "[fw]")) {
             mb_log_raw_line(text);
         }
     }
@@ -942,6 +947,12 @@ static void perf_begin_turn_if_needed(mb_mtmd_context * ctx) {
     ctx->perf_decode_tokens = 0;
     ctx->perf_prefill_ms = 0;
     ctx->perf_decode_ms = 0;
+    // prep_ms 必须在这里清：它是累加量（perf_add_prep 用 +=），而唯一会清它的
+    // mb_mtmd_perf_reset() 没有任何调用方。批量跑几十上百个 case 时它会跨回合
+    // 单调累加 —— 第 1 轮 10 ms、第 2 轮从 10 继续，完全失真。
+    // 别动 perf_image_* / moe_k_*：前者是 snapshot 里清掉的 one-shot（"One-shot,
+    // same as the eager embedding it describes"），后者是模型加载时定下的 K 常量。
+    ctx->perf_prep_ms = 0;
     ctx->perf_turn_open = true;
 }
 
@@ -1468,7 +1479,7 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.n_ctx                 = 4096;
     p.n_ubatch              = 0;       // 0 = pick MB_DEFAULT_N_UBATCH below
     p.n_threads             = 4;
-    p.temperature           = 0.7f;     // 0 = 贪心（可用 MB_TEMP=0 覆盖）
+    p.temperature           = 0.0f;     // 0 = 贪心，可复现（基准测试默认）
     p.use_gpu               = true;
     p.mmproj_use_gpu        = true;
     p.warmup                = true;
@@ -1971,24 +1982,27 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
             set_error(ctx.get(), "Failed to init sampler chain");
             return nullptr;
         }
-        // 临时覆盖开关（只为和 llama-cli 做对照，不设就是默认 0.5，行为一字不变）。
-        // 用 devicectl device process launch -e '{"MB_TEMP":"0"}' 启动即可贪心复现。
+        // 采样温度**只**由 `params.temperature` 决定（Swift 侧默认 0.0 = 贪心）。
+        //
+        // 这里原本支持 `MB_TEMP` 环境变量覆盖，已删除，原因是它会造成
+        // 「同一次实验前后半段采样方式不同」：
+        //   - `devicectl --environment-variables` 带参启动 → 贪心
+        //   - 从桌面点图标启动 → 环境变量不存在 → 退回 0.7 → 随机采样
+        // 而采样器是在 init 时建的，一条进程内改不回来。结果就是跑批数据整体作废。
+        // 让代码单点决定，就没有这个问题。
         float    temp = params.temperature;
         uint32_t seed = LLAMA_DEFAULT_SEED;
-        if (const char * e = getenv("MB_TEMP")) { temp = (float) atof(e); }
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
 
         if (temp > 0.0f) {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
-            mb_logf("[MBMtmd] sampler: temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
+            mb_logf("[MBMtmd] sampler: temp=%.3f dist seed=%u (MB_SEED=%s)",
                     temp, (unsigned) seed,
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)",
                     getenv("MB_SEED") ? getenv("MB_SEED") : "(unset)");
         } else {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_greedy());
-            mb_logf("[MBMtmd] sampler: greedy (temp=0, MB_TEMP=%s)",
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)");
+            mb_logf("[MBMtmd] sampler: greedy (temp=0)");
         }
     }
 
@@ -2165,28 +2179,28 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
             set_error(ctx.get(), "Failed to init sampler chain");
             return nullptr;
         }
-        // 采样参数。与多模态 init 路径保持一致：可用 MB_TEMP / MB_SEED 环境变量
-        // 覆盖（`devicectl device process launch -e '{"MB_TEMP":"0","MB_SEED":"42"}'`）。
+        // 采样参数。与多模态 init 路径保持一致：温度只由 `params.temperature` 决定
+        // （Swift 侧默认 0.0 = 贪心）。`MB_TEMP` 覆盖口子已删除，理由同多模态路径。
         //
         // 之前这里写死 `dist(LLAMA_DEFAULT_SEED)`，导致**纯文本路径无法复现**：
         // 同一个 prompt 两次运行输出不同，既没法做「开/关投机解码输出是否一致」
         // 这种正确性校验，也没法做可复现的基准。两条路径行为不一致本身就是个坑。
-        float    temp = params.temperature > 0.0f ? params.temperature : 0.6f;
+        //
+        // 注意：这里不能再用 `params.temperature > 0 ? ... : 0.6f` 那种兜底 ——
+        // 那会把「显式要求贪心（0）」误判成「没设温度」，自动变回 0.6 采样。
+        float    temp = params.temperature;
         uint32_t seed = LLAMA_DEFAULT_SEED;
-        if (const char * e = getenv("MB_TEMP")) { temp = (float) atof(e); }
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
         if (temp > 0.0f) {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(0.95f, /*min_keep=*/1));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
-            mb_logf("sampler (text-only): temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
+            mb_logf("sampler (text-only): temp=%.3f dist seed=%u (MB_SEED=%s)",
                     temp, (unsigned) seed,
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)",
                     getenv("MB_SEED") ? getenv("MB_SEED") : "(unset)");
         } else {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_greedy());
-            mb_logf("sampler (text-only): greedy (MB_TEMP=%s)",
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)");
+            mb_logf("sampler (text-only): greedy (temp=0)");
         }
     }
 
@@ -2789,6 +2803,30 @@ void mb_mtmd_perf_reset(mb_mtmd_context * ctx) {
 mb_mtmd_perf mb_mtmd_perf_snapshot(mb_mtmd_context * ctx) {
     mb_mtmd_perf p = {};
     if (!ctx) return p;
+
+    // ── 收口：把最后一个 token 的 GPU 尾部算进 decode_ms ──
+    //
+    // Metal 是异步的：`mb_mtmd_loop` 里的 `llama_decode` 提交完就返回，
+    // 最后一次解码的 GPU 时间可能还没落账。这里 sync 一次收口，
+    // 顺带让引擎的 n_eval 也把这一步数进去（否则会少 1 个 token）。
+    //
+    // ⚠️ 两套口径为什么对不上（查过多轮，结论如下，别再重复踩）：
+    //   `llama_perf.t_eval` 是从**提交**量到**下次 synchronize**
+    //   （llama-context.cpp:691），所以两次提交之间的任何空隙都会算进去。
+    //   而 App 生成循环里每输出一个 token 都有 `Task.sleep(10ms)`
+    //   （MTMDWrapper.swift 的 performGeneration）+ 节流刷新，
+    //   于是 t_eval 被系统性抬高，**不是 decode_ms 少算**。
+    //
+    //   证据（M1 iPad，256 token 单条）：
+    //     decode:  app 30860 ms  vs  llama t_eval 33546 ms  → 差 2686 ms = 10.49 ms/token（正好是那 10 ms）
+    //     prefill: app  5104 ms  vs  llama t_p_eval 5126 ms → 差   22 ms（prefill 没有 per-token 让步）
+    //   ⇒ TPOT 用 decode_ms 是对的；t_eval 只适合用来核对「有没有漏算 GPU」。
+    if (ctx->lctx && ctx->perf_decode_tokens > 0) {
+        const double t_sync = now_ms();
+        llama_synchronize(ctx->lctx.get());
+        ctx->perf_decode_ms += std::max(0.0, now_ms() - t_sync);
+    }
+
     p.prefill_tokens = ctx->perf_prefill_tokens;
     p.decode_tokens  = ctx->perf_decode_tokens;
     p.prefill_ms     = ctx->perf_prefill_ms;

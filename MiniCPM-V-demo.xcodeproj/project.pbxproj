@@ -121,6 +121,17 @@
 		FEF2000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift */; };
 		EFEF9CCF3E0F6A457CF6C478 /* MBV47ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831D45EFC13EA6C7CA785692 /* MBV47ModelDownloadManager.swift */; };
 		FEF2000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift */; };
+		BE102BADD14439940D3DE64E /* BenchmarkCase.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEFACAC8D396C3B519161D42 /* BenchmarkCase.swift */; };
+		BEC4FEDFEEADE1DE2FEA598C /* BenchmarkEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEBAC3132406E763C2A8AE48 /* BenchmarkEnvironment.swift */; };
+		BEAAF6A922F39975E988A0FA /* BenchmarkResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEDB3155A6ECDC2F3C80633 /* BenchmarkResult.swift */; };
+		BE98A940D324D0A34921383D /* BenchmarkRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE998F45D569DC3F453370D6 /* BenchmarkRunner.swift */; };
+		BE200433CB78AD9C51FCE012 /* BenchmarkSample.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE993E9FB2E2D7710A6203D3 /* BenchmarkSample.swift */; };
+		BE5A1C7E2D8F4B6091A3C5D7 /* BenchmarkStatistics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE7F3D9A1B5E4C8207D9F1A3 /* BenchmarkStatistics.swift */; };
+		BEE5BB8F9002410543DE0C51 /* BenchmarkSampleDataset.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEDECFD8AD017A01F9056D6F /* BenchmarkSampleDataset.swift */; };
+		BE0D64389B5A4225D4359936 /* MBBenchmarkViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEE94E88B07546DADD06FD26 /* MBBenchmarkViewController.swift */; };
+		BFAC3DD14512B7CAAB1604F9 /* Benchmark in Resources */ = {isa = PBXBuildFile; fileRef = BF78051E7694D99A804ECCFE /* Benchmark */; };
+		BE17A8DCE57166FC3C4EED64 /* BenchmarkLaunchCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE747BFB57BEFDB4EE2B1AE9 /* BenchmarkLaunchCommand.swift */; };
+		BEC3653BE7BD341F46DAC06E /* BenchmarkReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5B7672C8FCB8653AC145D8 /* BenchmarkReport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -270,6 +281,17 @@
 		FEF1000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBV526ModelDownloadManager.swift; sourceTree = "<group>"; };
 		831D45EFC13EA6C7CA785692 /* MBV47ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBV47ModelDownloadManager.swift; sourceTree = "<group>"; };
 		FEF1000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBV526ModelDetailViewController.swift; sourceTree = "<group>"; };
+		BEFACAC8D396C3B519161D42 /* BenchmarkCase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkCase.swift; sourceTree = "<group>"; };
+		BEBAC3132406E763C2A8AE48 /* BenchmarkEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkEnvironment.swift; sourceTree = "<group>"; };
+		BEEDB3155A6ECDC2F3C80633 /* BenchmarkResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkResult.swift; sourceTree = "<group>"; };
+		BE998F45D569DC3F453370D6 /* BenchmarkRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkRunner.swift; sourceTree = "<group>"; };
+		BE993E9FB2E2D7710A6203D3 /* BenchmarkSample.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkSample.swift; sourceTree = "<group>"; };
+		BE7F3D9A1B5E4C8207D9F1A3 /* BenchmarkStatistics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkStatistics.swift; sourceTree = "<group>"; };
+		BEDECFD8AD017A01F9056D6F /* BenchmarkSampleDataset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkSampleDataset.swift; sourceTree = "<group>"; };
+		BEE94E88B07546DADD06FD26 /* MBBenchmarkViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBBenchmarkViewController.swift; sourceTree = "<group>"; };
+		BF78051E7694D99A804ECCFE /* Benchmark */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Benchmark; sourceTree = "<group>"; };
+		BE747BFB57BEFDB4EE2B1AE9 /* BenchmarkLaunchCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkLaunchCommand.swift; sourceTree = "<group>"; };
+		BE5B7672C8FCB8653AC145D8 /* BenchmarkReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkReport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -401,6 +423,7 @@
 		FA3FA2652C1176E80077F732 /* MiniCPM-V-demo */ = {
 			isa = PBXGroup;
 			children = (
+				BF887A6F90336FF23D95C391 /* Resources */,
 				FAD6428A2E2A223800088528 /* MTMDWrapper */,
 				FAF0892D2E288CA10007CFD5 /* thirdparty */,
 				FAC283BF2C1AFD9300A4FD25 /* MiniCPM-V-demo.entitlements */,
@@ -432,6 +455,7 @@
 		FA3FA2932C118A980077F732 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				BE1AB0CD3F2A1EB84591F3EB /* Benchmark */,
 				FA8511342E20DCC000748053 /* Settings */,
 				FAC2A1D32C11B30400499465 /* Base */,
 				FA72852B2C1199D200A7FD14 /* Home */,
@@ -770,6 +794,31 @@
 			path = ref_audios;
 			sourceTree = "<group>";
 		};
+		BE1AB0CD3F2A1EB84591F3EB /* Benchmark */ = {
+			isa = PBXGroup;
+			children = (
+				BE747BFB57BEFDB4EE2B1AE9 /* BenchmarkLaunchCommand.swift */,
+				BE5B7672C8FCB8653AC145D8 /* BenchmarkReport.swift */,
+				BEFACAC8D396C3B519161D42 /* BenchmarkCase.swift */,
+				BEBAC3132406E763C2A8AE48 /* BenchmarkEnvironment.swift */,
+				BEEDB3155A6ECDC2F3C80633 /* BenchmarkResult.swift */,
+				BE998F45D569DC3F453370D6 /* BenchmarkRunner.swift */,
+				BE993E9FB2E2D7710A6203D3 /* BenchmarkSample.swift */,
+				BEDECFD8AD017A01F9056D6F /* BenchmarkSampleDataset.swift */,
+				BEE94E88B07546DADD06FD26 /* MBBenchmarkViewController.swift */,
+				BE7F3D9A1B5E4C8207D9F1A3 /* BenchmarkStatistics.swift */,
+			);
+			path = Benchmark;
+			sourceTree = "<group>";
+		};
+		BF887A6F90336FF23D95C391 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				BF78051E7694D99A804ECCFE /* Benchmark */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -882,6 +931,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BFAC3DD14512B7CAAB1604F9 /* Benchmark in Resources */,
 				FAA1F00E2E2A223800088528 /* PrivacyInfo.xcprivacy in Resources */,
 				FA3FA2702C1176E90077F732 /* Assets.xcassets in Resources */,
 				FA3FA2732C1176E90077F732 /* Base in Resources */,
@@ -905,6 +955,16 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BE17A8DCE57166FC3C4EED64 /* BenchmarkLaunchCommand.swift in Sources */,
+				BEC3653BE7BD341F46DAC06E /* BenchmarkReport.swift in Sources */,
+				BE102BADD14439940D3DE64E /* BenchmarkCase.swift in Sources */,
+				BEC4FEDFEEADE1DE2FEA598C /* BenchmarkEnvironment.swift in Sources */,
+				BEAAF6A922F39975E988A0FA /* BenchmarkResult.swift in Sources */,
+				BE98A940D324D0A34921383D /* BenchmarkRunner.swift in Sources */,
+				BE200433CB78AD9C51FCE012 /* BenchmarkSample.swift in Sources */,
+				BE5A1C7E2D8F4B6091A3C5D7 /* BenchmarkStatistics.swift in Sources */,
+				BEE5BB8F9002410543DE0C51 /* BenchmarkSampleDataset.swift in Sources */,
+				BE0D64389B5A4225D4359936 /* MBBenchmarkViewController.swift in Sources */,
 				FAEFA80F2C48BAD3009C2AEF /* SwiftyCameraPreviewView.swift in Sources */,
 				FA845F2E2C2EC20800695029 /* NSTextAttachment+MBPath.swift in Sources */,
 				FA9C4B5B2C227A2C000D9BC4 /* MBHomeViewController+CheckSupport.swift in Sources */,

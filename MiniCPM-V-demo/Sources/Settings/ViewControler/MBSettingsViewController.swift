@@ -413,7 +413,28 @@ extension MBSettingsViewController: UITableViewDelegate {
         if let title = model.title, title == L.Settings.rowAbout.loc {
             // 关于我们的处理逻辑
             showAboutUs()
+            return
         }
+        if let title = model.title, title == L.Settings.rowBenchmark.loc {
+            showBenchmark()
+        }
+    }
+
+    /// 批量基准测试入口。
+    ///
+    /// 需要 mtmdWrapperExample（模型已加载才有意义），拿不到就给提示 ——
+    /// 没有模型时跑批没有意义，静默禁用不如讲清楚。
+    private func showBenchmark() {
+        guard let wrapper = mtmdWrapperExample else {
+            let alert = UIAlertController(title: L.Common.error.loc,
+                                          message: L.Settings.alertNoWrapper.loc,
+                                          preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L.Common.ok.loc, style: .default))
+            present(alert, animated: true)
+            return
+        }
+        let vc = MBBenchmarkViewController(with: wrapper)
+        navigationController?.pushViewController(vc, animated: true)
     }
 
     private func presentLookaheadPrefetchDepthPicker() {
@@ -895,11 +916,24 @@ extension MBSettingsViewController {
     private func setupOtherSettingsSection() {
         var section = [MBSettingsModel]()
         
+        // 批量基准测试：串行跑数据集，输出完整统计量。
+        // 刻意**不做档位划分与合格判定** —— 那是 MLPerf 针对特定模型定的规则，
+        // 不是统计本身；这里只负责把实验跑完并把统计量如实呈现。
+        //
+        // 放在「关于我们」**上面**：它是这个版本的主要功能入口，
+        // 压在最后一条很容易被当成附属项划过去。
+        let benchmarkModel = MBSettingsModel()
+        benchmarkModel.title = L.Settings.rowBenchmark.loc
+        benchmarkModel.icon = UIImage(systemName: "chart.bar.xaxis")
+        benchmarkModel.accessoryIcon = UIImage(named: "setting_accessory_icon")
+
+        section.append(benchmarkModel)
+
         let aboutModel = MBSettingsModel()
         aboutModel.title = L.Settings.rowAbout.loc
         aboutModel.icon = UIImage(systemName: "info.circle")
         aboutModel.accessoryIcon = UIImage(named: "setting_accessory_icon")
-        
+
         section.append(aboutModel)
         
         dataArray.append(section)

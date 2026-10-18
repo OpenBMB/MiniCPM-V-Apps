@@ -39,7 +39,8 @@ extension MBHomeViewController {
 
             // 基准/诊断：把关键状态打出来。之前一次真机运行停在 "MTMDWrapper: 初始化"
             // 却没有任何线索，只能靠翻源码推断——有这行不用再猜。
-            let benchArgs = ProcessInfo.processInfo.arguments.dropFirst().filter { $0.hasPrefix("-moe") }
+            let benchArgs = ProcessInfo.processInfo.arguments.dropFirst()
+                .filter { $0.hasPrefix("-moe") || $0.hasPrefix("-bench") }
             if !benchArgs.isEmpty {
                 // 关键：`devicectl --console` 下 stdout 是管道 → C stdio 块缓冲（4KB），
                 // 进程被超时杀掉时缓冲全丢。基准场景改成无缓冲，所有 print 即时可见。
@@ -305,6 +306,13 @@ extension MBHomeViewController {
                         DispatchQueue.main.async {
                             if selectedModelType == .V47MoE {
                                 self.runMoeBenchIfRequested()
+                                // 批量基准的无人值守入口（`-bench`）。
+                                // 与 `-moeBench` 互斥：两个都带时前者跑完就 exit 了。
+                                if BenchmarkLaunchCommand.isRequested {
+                                    Task { @MainActor in
+                                        BenchmarkLaunchCommand.runIfRequested(example: self.mtmdWrapperExample)
+                                    }
+                                }
                             }
                         }
                         return
@@ -414,6 +422,11 @@ extension MBHomeViewController {
                     // 后面走的是和手动一模一样的 addText → startGeneration 链路。
                     if selectedModelType == .V47MoE {
                         self.runMoeBenchIfRequested()
+                        if BenchmarkLaunchCommand.isRequested {
+                            Task { @MainActor in
+                                BenchmarkLaunchCommand.runIfRequested(example: self.mtmdWrapperExample)
+                            }
+                        }
                     }
                 }
             }

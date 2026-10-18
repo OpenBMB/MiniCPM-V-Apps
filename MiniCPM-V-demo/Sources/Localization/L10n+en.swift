@@ -47,6 +47,7 @@ extension LocalizationManager {
         L.Settings.rowLookaheadPrefetchDepth:         "Prefetch experts",
         L.Settings.rowDspark:            "DSpark speculative decoding",
         L.Settings.rowAbout:             "About",
+        L.Settings.rowBenchmark:         "Batch Benchmark",
         L.Settings.dsparkHint:           "The draft model proposes several tokens per round; the target model verifies the whole block. While on, the prefetch depth and the window are left **unchanged** (the four engine-side gates that used to block this are fixed, so both can run together; use the \"Prefetch experts\" row above to A/B it). Three things to note: (1) the draft model (Q8, 405 MB) is not part of the main model download -- turning this on will offer to fetch it; (2) on devices whose window only covers ~4 rows, launch with -moeTextOnly (no mmproj), or window + draft + mmproj will exceed the memory limit; (3) reload the model to apply.",
         L.Settings.dsparkDraftMissingTitle:   "Draft model needed",
         L.Settings.dsparkDraftMissingBody:    "The draft model is not covered by the main model's integrity check. If it is missing nothing errors out -- speculative decoding is silently disabled, which just looks like \"turned on but no speedup\".",

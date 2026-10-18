@@ -55,7 +55,13 @@ public class MTMDWrapper: ObservableObject {
     private var context: OpaquePointer?
     
     /// 生成参数
-    private var params: MTMDParams?
+    /// 初始化参数。
+    ///
+    /// 放宽为 internal + private(set)：批量基准测试需要读回实际生效的采样温度，
+    /// 用来在跑批前拦住「温度非 0 → 结果不可复现」这种情况
+    /// （MLPerf `mobile_inference_rules.adoc:104-117` 只允许浮点序 / 输入随机遍历 /
+    /// 舍入三种非确定性，采样随机不在其中）。只放开读，写仍在类型内部。
+    private(set) var params: MTMDParams?
     
     /// 生成任务
     private var generationTask: Task<Void, Never>?
@@ -596,6 +602,43 @@ public class MTMDWrapper: ObservableObject {
 
             // 检查是否生成完成
             if cToken.is_end {
+                // ── 基准固定步数模式：**忽略 EOG**，继续解码到上限 ──
+                //
+                // 为什么必须忽略：`decodeTokenLimit` 原本只是「最多生成多少」，撞 EOG 就提前停。
+                // 实测 12 条 case × 2 轮里只有 12/24 能跑满 256，其余在 53~222 就停了。
+                // 输出长度不同 → decode 步数不同 → 单条 wall 与能耗不可跨 case 比较，
+                // 而功耗拆解恰恰要横向比。MLPerf 性能模式同样要求「固定输出长度、忽略 EOG」。
+                //
+                // 安全性：桥接层在返回 is_end 之前**已经把 EOG 喂进 KV 并计入 decode_tokens**
+                // （MBMtmd.mm:3084-3098），所以继续调 mb_mtmd_loop 时 n_past 连续，
+                // 不会出现位置空洞。
+                if decodeTokenLimit > 0 {
+                    // 但要区分「EOG」与「解码失败」—— 后者同样返回 is_end。
+                    // 出错时 last_error 非空，必须停，否则会在坏状态上空转。
+                    let errPtr = mb_mtmd_get_last_error(ctx)
+                    let errMsg = errPtr != nil ? String(cString: errPtr!) : ""
+                    if !errMsg.isEmpty {
+                        lastPerf = mb_mtmd_perf_snapshot(ctx)
+                        updateGenerationState(.failed(.generationFailed(errMsg)))
+                        print("MTMDWrapper: 固定步数模式下解码失败，中止：\(errMsg)")
+                        generationTask = nil
+                        return
+                    }
+
+                    nDecoded += 1
+                    if nDecoded >= decodeTokenLimit {
+                        lastPerf = mb_mtmd_perf_snapshot(ctx)
+                        mb_mtmd_log_text("OUTPUT(fixed-length)", accumulated)
+                        updateGenerationState(.completed)
+                        print("MTMDWrapper: 达到固定步数 \(decodeTokenLimit)（期间已忽略 EOG）")
+                        generationTask = nil
+                        return
+                    }
+                    // 与正常路径保持同样的让出节奏，避免基准路径的 CPU 占用模式不同
+                    try? await Task.sleep(nanoseconds: 10_000_000)
+                    continue
+                }
+
                 lastPerf = mb_mtmd_perf_snapshot(ctx)
                 mb_mtmd_log_text("OUTPUT(full)", accumulated)
                 updateGenerationState(.completed)

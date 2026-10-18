@@ -31,6 +31,19 @@ extension MBHomeViewController {
         }
     }
     
+    /// 主页右侧悬浮入口 → 批量基准测试。
+    ///
+    /// 与设置页里那一行走同一个页面，只是入口更浅。
+    /// 拿不到 wrapper（模型未初始化）时直接静默返回 —— 按钮在模型加载完成前后
+    /// 都可能被点到，弹一个「失败」框比什么都不做更让人困惑。
+    @objc func benchmarkEntryTapped() {
+        guard let wrapper = mtmdWrapperExample else {
+            return
+        }
+        let vc = MBBenchmarkViewController(with: wrapper)
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
     /// 跳转教程页
     @objc func tutorialButtonTapped() {
         let vc = MBTutorialViewController()
