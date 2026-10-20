@@ -24,9 +24,9 @@
     "chart_reading": 2
   },
   "sources": [
-    "1B_cases",
-    "35BA3B_cases",
-    "4.6_showcase",
+    "showcase_1b",
+    "showcase_cases",
+    "showcase_46",
     "self"
   ],
   "files": [

@@ -15,7 +15,7 @@
         "30 images (flat)"
       ],
       "cases_sha256": "94c1e9c29a4b74a25f0a73d7380744a7e2e47e7e04edd849c2b76626612bf9d9",
-      "labels_sha256": "1d37780dc04dd0803ab2fcabb8d55a18c6c2407b4080cfe792c46f20aedf398c",
+      "labels_sha256": "f360ea6ab893b1651e95f6d3ce12586779f0746e84543c25d9570ce3ae03d862",
       "categories": {
         "ocr_math": 12,
         "recognition": 8,
@@ -34,12 +34,12 @@
         "chart_reading": 2
       },
       "sources": [
-        "数据/1B_cases (7 reviewed)",
-        "数据/35BA3B_cases (12 reviewed)",
-        "数据/MiniCPM-v-4.7 show case.md 4.6 section (6 reviewed)",
-        "数据/unzipped/图片和附件 (self supplement images)"
+        "showcase_1b (7 reviewed)",
+        "showcase_cases (12 reviewed)",
+        "showcase_doc 4.6 section (6 reviewed)",
+        "self-supplied images"
       ],
-      "license": "Internal benchmark only; reviewed prompts/answers from project showcase docs; images include public FDA/Wikimedia/NASA material and internal menus/receipts/boarding passes; do not redistribute."
+      "license": "Reviewed prompts/answers derive from project showcase docs; images include public FDA / Wikimedia / NASA material and project-supplied screenshots. Verify licensing before redistributing any image."
     },
     "mlperf_llm": {
       "cases": 133,
