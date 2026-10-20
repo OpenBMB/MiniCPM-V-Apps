@@ -5,7 +5,7 @@
 //  内置数据集（bundle 里的 `Resources/Benchmark/<track>/`）的安装与导出工具。
 //
 //  数据集本身在 `datasets/benchmark_v2/` 里生成（见该目录的 README）：
-//  - `mmmu_qa_100`：100 条，MMMU validation 抽样，单图 + 单选题（**默认 track**）
+//  - `vision_mix_50`：50 条，25 条已审核真实 case + 25 条识图/描述/短答图文（**默认 track**）
 //  - `mlperf_llm`：133 条，MLPerf Mobile v6.0 Tiny-MMLU + Tiny-IFEval-33，纯文本
 //
 //  为什么要在启动时"铺"到 Documents：
@@ -21,15 +21,17 @@ import Foundation
 public enum BenchmarkSampleDataset {
 
     /// 安装戳记的版本号。**改数据集内容时把它 +1**，已装过的设备才会重铺。
-    public static let installVersion = "v2"
+    // v4：vision_mix_50 的 prompt 改写过（去掉“只回答…”约束），文件数与 v3 相同，
+    // 所以必须靠版本号而不是文件数来触发重铺。
+    public static let installVersion = "v4"
 
-    /// 内置数据集的 case 条数（UI 文案用；实际以 cases.jsonl 为准）。
-    public static let builtinCaseCount = 100
+    /// 默认 track 的 case 条数（UI 文案用；实际以 cases.jsonl 为准）。
+    public static let builtinCaseCount = 50
 
     /// 把 bundle 里的每条 track 铺到 `Documents/benchmark/<track>/`。
     ///
     /// - Parameter force: true 时无视戳记强制重铺。
-    /// - Returns: 人类可读的摘要，形如 `mmmu_qa_100=installed(102), mlperf_llm=cached(6)`。
+    /// - Returns: 人类可读的摘要，形如 `vision_mix_50=installed(34), mlperf_llm=cached(6)`。
     @discardableResult
     public static func installBundledDatasetsIfNeeded(force: Bool = false) throws -> String {
         guard let base = BenchmarkCaseStore.builtinURL() else {

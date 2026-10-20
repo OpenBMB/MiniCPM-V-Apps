@@ -50,7 +50,7 @@ BID=<your app bundle id>            # e.g. com.example.MiniCPMVDemo — use your
 
 xcrun devicectl device process launch \
   --device $UDID --terminate-existing $BID \
-  -- -bench -benchReps 1 -benchMaxTokens 512 -benchDataset mmmu_qa_100 -benchStay
+  -- -bench -benchReps 1 -benchMaxTokens 512 -benchDataset vision_mix_50 -benchStay
 ```
 
 Everything after `--` is passed to the app as launch arguments. Add `--console` to watch the log live:
@@ -88,7 +88,7 @@ xcrun devicectl device copy from --device $UDID \
 | `-benchReps N` | 1 | Repetitions per case |
 | `-benchMaxTokens N` | see note | Output token **upper bound**; generation stops early on EOG. `0` = no limit.<br>When omitted, falls back to `-benchTokens` (below) |
 | `-benchTokens N` | **25** | Legacy: **fixed step count, ignores EOG**. Only for strictly equal-length cross-device comparisons.<br>⚠️ Passing neither token argument is equivalent to "fixed 25 steps" |
-| `-benchDataset a,b` | `mmmu_qa_100` | Which datasets to run (comma-separated; each runs to its full count) |
+| `-benchDataset a,b` | `vision_mix_50` | Which datasets to run (comma-separated; each runs to its full count) |
 | `-benchCases 1,2,3` | all | Only run the cases with these `key`s (filtered inside the selected datasets) |
 | `-benchCooldown sec` | 0 | Inter-repetition cooldown (not exposed in the UI yet) |
 | `-benchIdleSec sec` | 0 | Quiet baseline before the run; **`thermal=` lines only appear when > 0** |
@@ -136,12 +136,12 @@ xcrun devicectl device copy from --device $UDID \
 
 | Track | Cases | Content | key range |
 |---|---:|---|---|
-| **`mmmu_qa_100`** (default) | 100 | MMMU validation sample, single image + A–D multiple choice | 1–100 |
+| **`vision_mix_50`** (default) | 50 | Image recognition / description / short-answer mix (25 reviewed real cases + 25 synthetic short-answer cases) | 3001–3050 |
 | `mlperf_llm` | 133 | MLPerf Mobile v6.0: Tiny-MMLU (100) + Tiny-IFEval-33 (33), **text only** | 1001–1100 / 2001–2033 |
 
 The two key ranges do not overlap, so both tracks can run in one block (results are distinguished by `key`).
 
-Selection precedence: CLI `-benchDataset` > plan saved from the UI sliders > default (all of `mmmu_qa_100`).
+Selection precedence: CLI `-benchDataset` > plan saved from the UI sliders > default (all of `vision_mix_50`).
 A CLI run that passes `-benchDataset` is therefore unaffected by the UI configuration.
 
 ### 5.2 Where datasets live
@@ -177,7 +177,7 @@ Written to `Documents/benchmark_results/`:
 
 | File | Content |
 |---|---|
-| `run_<uuid>.json` | Summary (per-repetition detail + statistics + environment metadata + dataset/params).<br>`datasetSource` looks like `documents · mmmu_qa_100=100,mlperf_llm=0`, which lets you reconstruct the dataset configuration afterwards |
+| `run_<uuid>.json` | Summary (per-repetition detail + statistics + environment metadata + dataset/params).<br>`datasetSource` looks like `documents · vision_mix_50=50,mlperf_llm=0`, which lets you reconstruct the dataset configuration afterwards |
 | `telemetry_<uuid>.jsonl` | Per-sample detail, one JSON per line (**aggregation can be redefined later; raw detail cannot be recovered**) |
 
 Pull them off the device:
@@ -209,7 +209,7 @@ xcrun devicectl device copy from --device $UDID \
 | Symptom | Cause / fix |
 |---|---|
 | Only one token generated | Legacy defect that clamped `decodeTokenLimit` to a minimum of 1; fixed. `-benchMaxTokens 0` means "no limit" |
-| `[BENCH] error: no usable case after filtering` | `-benchCases` keys are not in the selected dataset (mmmu 1–100, mlperf 1001–2033) |
+| `[BENCH] error: no usable case after filtering` | `-benchCases` keys are not in the selected dataset (vision_mix_50 3001–3050, mlperf 1001–2033) |
 | Bench throughput below normal chat | Check `-genSleepMs` (bench default is now 3 ms). The previous fixed 10 ms let the GPU drop a DVFS step, costing roughly 22% |
 | Progressively slower blocks/runs | Thermal throttling. Inspect `thermal=` and per-run `decode_tps`; increase `-benchCooldown`, reduce repetitions, or lengthen `-benchIdleSec` |
 | Text-only dataset: process killed when warm-up is enabled | Historical issue: text-only warm-up triggered a llama_context rebuild and was SIGKILLed. Current versions build the warm-up case from `warmup.png`, or skip warm-up if absent |

@@ -12,8 +12,8 @@
 //  - 设备侧：`Documents/benchmark/<track>/`，**App 启动时自动从 bundle 铺好**，
 //    之后可直接改（换图/改提示词），不用重编译。
 //
-//  现有 track：`mmmu_qa_100`（100 条，图 + 文单选）、`mlperf_llm`（133 条，纯文本）。
-//  用 `-benchDataset <track>` 选择，默认 `mmmu_qa_100`。
+//  现有 track：`vision_mix_50`（50 条，识图/描述/短答为主的图文混合，默认）、
+//  `mlperf_llm`（133 条，纯文本）。用 `-benchDataset <track>` 选择。
 //
 
 import Foundation
@@ -61,10 +61,10 @@ public enum BenchmarkCaseSource: String {
 public enum BenchmarkCaseStore {
 
     /// 内置有哪些 track（顺序即 UI 里的展示顺序）。
-    public static let bundledTracks = ["mmmu_qa_100", "mlperf_llm"]
+    public static let bundledTracks = ["vision_mix_50", "mlperf_llm"]
 
     /// 默认 track。
-    public static let defaultTrack = "mmmu_qa_100"
+    public static let defaultTrack = "vision_mix_50"
 
     /// 多选时存哪个 key（UI 里勾选的 track 列表）。
     public static let tracksDefaultsKey = "bench_dataset_tracks"
@@ -134,7 +134,7 @@ public enum BenchmarkCaseStore {
 
 
     /// 写进结果元数据的「数据集来源 + 各 track 实际条数」，例如
-    /// `documents · mmmu_qa_100=100,mlperf_llm=0` —— 事后能还原跑的是哪一档数据。
+    /// `documents · vision_mix_50=50,mlperf_llm=0` —— 事后能还原跑的是哪一档数据。
     public static func planDescription() -> String {
         let plan = selectedPlan()
         let parts = bundledTracks.map { "\($0)=\(plan[$0] ?? 0)" }.joined(separator: ",")

@@ -374,8 +374,8 @@ public final class MBBenchmarkViewController: UIViewController {
     /// 给每条 track 一句人话描述（加 track 时一并加）。
     private func trackSummary(_ track: String) -> String {
         switch track {
-        case "mmmu_qa_100":
-            return "MMMU 抽样，单图 + A-D 单选题"
+        case "vision_mix_50":
+            return "1B/35B/4.6 已审核 25 条 + 识图/描述/简单题 25 条"
         case "mlperf_llm":
             return "MLPerf Mobile v6.0（Tiny-MMLU 100 + Tiny-IFEval 33），纯文本"
         default:

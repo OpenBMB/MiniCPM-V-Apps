@@ -305,7 +305,7 @@ VoxCPM2 支持 30+ 种语言和 9 种中国方言。可直接从文本生成语�
 iOS App 内置批量基准测试（Batch Benchmark）：**固定数据集 × 固定参数 × 多轮重复**，
 逐条记录 prefill / decode 速度、TTFT、TPOT、CPU/GPU 计量与热状态。
 
-数据集（MMMU 图文选择题 100 条、MLPerf Mobile 纯文本 133 条）**随 App 一起分发**，
+数据集（`vision_mix_50` 识图/描述/短答 50 条、`mlperf_llm` 纯文本 133 条）**随 App 一起分发**，
 启动时自动铺到 `Documents/benchmark/<track>/`，装完即可直接跑，无需手动传输。
 
 两种跑法：

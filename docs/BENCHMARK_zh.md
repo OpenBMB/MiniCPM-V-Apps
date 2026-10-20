@@ -49,7 +49,7 @@ BID=<你的 App Bundle ID>          # 例如 com.example.MiniCPMVDemo（改成�
 
 xcrun devicectl device process launch \
   --device $UDID --terminate-existing $BID \
-  -- -bench -benchReps 1 -benchMaxTokens 512 -benchDataset mmmu_qa_100 -benchStay
+  -- -bench -benchReps 1 -benchMaxTokens 512 -benchDataset vision_mix_50 -benchStay
 ```
 
 `--` 之后是 App 的启动参数。追加 `--console` 可在主机侧实时查看日志：
@@ -85,7 +85,7 @@ xcrun devicectl device copy from --device $UDID \
 | `-benchReps N` | 1 | 每条 case 重复几轮 |
 | `-benchMaxTokens N` | 见说明 | 输出 token **上限**，遇到 EOG 提前结束。`0` = 不设上限。<br>未指定时回退到 `-benchTokens`（见下） |
 | `-benchTokens N` | **25** | 旧口径：**固定步数、忽略 EOG**。仅在需要严格等长的跨设备对比时用。<br>⚠️ 两个 token 参数都不传时，等价于「固定生成 25 步」 |
-| `-benchDataset a,b` | `mmmu_qa_100` | 要运行的数据集，逗号分隔；每条 track 运行其全部 case |
+| `-benchDataset a,b` | `vision_mix_50` | 要运行的数据集，逗号分隔；每条 track 运行其全部 case |
 | `-benchCases 1,2,3` | 全部 | 只跑指定 `key` 的 case（在所选数据集内过滤） |
 | `-benchCooldown 秒` | 0 | 轮间冷却（防热节流；UI 上暂未暴露） |
 | `-benchIdleSec 秒` | 0 | 跑批前静默基线时长；**>0 才会打印 `thermal=` 行** |
@@ -133,12 +133,12 @@ xcrun devicectl device copy from --device $UDID \
 
 | track | 条数 | 内容 | key 段 |
 |---|---:|---|---|
-| **`mmmu_qa_100`**（默认） | 100 | MMMU validation 抽样，单图 + A-D 单选题 | 1~100 |
+| **`vision_mix_50`**（默认） | 50 | 识图 / 描述 / 短答为主的图文混合（25 条已审核真实 case + 25 条自造短答） | 3001~3050 |
 | `mlperf_llm` | 133 | MLPerf Mobile v6.0：Tiny-MMLU(100) + Tiny-IFEval-33(33)，**纯文本** | 1001~1100 / 2001~2033 |
 
 两条 track 的 key 段不重叠，可以同时跑（结果里靠 `key` 区分）。
 
-选择优先级：命令行 `-benchDataset` > 界面滑条保存的选择 > 默认（`mmmu_qa_100` 全量）。
+选择优先级：命令行 `-benchDataset` > 界面滑条保存的选择 > 默认（`vision_mix_50` 全量）。
 即带 `-benchDataset` 的命令行运行不受界面配置影响。
 
 ### 5.2 数据集的来源与存放位置
@@ -174,7 +174,7 @@ App 包内（只读）：  MiniCPM-V-demo/Resources/Benchmark/<track>/
 
 | 文件 | 内容 |
 |---|---|
-| `run_<uuid>.json` | 汇总（每轮明细 + 统计量 + 环境元数据 + 数据集来源/参数）。<br>`datasetSource` 形如 `documents · mmmu_qa_100=100,mlperf_llm=0`，可据此事后还原数据集档位 |
+| `run_<uuid>.json` | 汇总（每轮明细 + 统计量 + 环境元数据 + 数据集来源/参数）。<br>`datasetSource` 形如 `documents · vision_mix_50=50,mlperf_llm=0`，可据此事后还原数据集档位 |
 | `telemetry_<uuid>.jsonl` | 逐条明细，每行一个 sample（聚合口径可事后调整，但原始明细丢失后无法重建） |
 
 取回设备：
@@ -205,7 +205,7 @@ xcrun devicectl device copy from --device $UDID \
 | 现象 | 原因 / 处理 |
 |---|---|
 | 只生成 1 个 token | 旧版本把 `decodeTokenLimit` 钳到下限 1 的缺陷，已修复；`-benchMaxTokens 0` 表示不设上限 |
-| `[BENCH] error: 过滤后没有可用 case` | `-benchCases` 的 key 不在所选数据集里（mmmu 是 1~100、mlperf 是 1001~2033） |
+| `[BENCH] error: 过滤后没有可用 case` | `-benchCases` 的 key 不在所选数据集里（vision_mix_50 是 3001~3050、mlperf 是 1001~2033） |
 | 跑批吞吐低于日常对话 | 先确认 `-genSleepMs`（bench 默认已改为 3 ms）。旧版本固定为 10 ms，会使 GPU 降频一档，吞吐低约 22% |
 | 逐块/逐轮变慢 | 热节流。检查 `thermal=` 与每轮 `decode_tps`；可增加 `-benchCooldown`、减少轮数或延长 `-benchIdleSec` |
 | 纯文本数据集开启预热后进程被系统终止 | 历史问题：纯文本预热会触发 llama_context 重建并被 SIGKILL。现版本改用 `warmup.png` 造预热 case，缺失时直接跳过预热 |
