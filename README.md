@@ -303,3 +303,23 @@ VoxCPM2 supports 30+ languages and 9 Chinese dialects. It can generate speech fr
 * ModelScope: [https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
 
 After downloading, place both `.gguf` files in the app's **Documents** directory (iOS) or in the per-model folder under `{ExternalFilesDir}/models/` (Android / HarmonyOS). You can also download them directly inside the app via **Model Manager**. Once models are downloaded, select VoxCPM2 and the app switches to the TTS interface automatically.
+
+---
+
+## Batch Benchmark
+
+The iOS app ships a built-in batch benchmark (fixed dataset × fixed params × repeated runs,
+reporting prefill/decode throughput, TTFT, TPOT, CPU/GPU counters and thermal state).
+Datasets are bundled with the app and installed automatically to `Documents/benchmark/<track>/`
+on first launch — no manual file transfer.
+
+- Run it in the app: floating button on the home screen → **Batch Benchmark**.
+- Or from the CLI:
+
+  ```bash
+  xcrun devicectl device process launch --device <UDID> --terminate-existing \
+      <your app bundle id> -- -bench -benchReps 1 -benchMaxTokens 512 -benchStay
+  ```
+
+Full parameter reference, dataset format, log markers and result fields: **[docs/BENCHMARK.md](docs/BENCHMARK.md)**.
+Whole-device power measurement: **[scripts/pwrbench/README.md](scripts/pwrbench/README.md)**.

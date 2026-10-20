@@ -33,10 +33,17 @@ public final class MBBenchmarkViewController: UIViewController {
     private let runner = BenchmarkRunner()
     private var cancellables = Set<AnyCancellable>()
 
-    private var repetitions: Int = 3
-    private var decodeTokenLimit: Int = 256
-    private var warmupEnabled: Bool = true
+    private var repetitions: Int = 1
+    /// 输出 token **上限**（撞 EOG 会提前停，不是固定步数）
+    private var decodeTokenLimit: Int = 512
+    // 短预热已关闭（UI 也不再显示）：它会把一条「你好」写进结果里，
+    // 且实测对跑批数字没有稳定收益，反而多一次 prefill 的读盘。
+    // 逻辑仍保留，需要时用 `-benchWarmup 1` 打开。
+    private var warmupEnabled: Bool = false
     private var cooldownSec: Int = 0
+    /// 每条 track 本次跑多少条（滑条，0 = 不跑），写回 UserDefaults。
+    private var plan: [String: Int] = BenchmarkCaseStore.selectedPlan()
+    private var trackCaseCount: Int = 0
 
     // MARK: - 视图
 
@@ -44,10 +51,14 @@ public final class MBBenchmarkViewController: UIViewController {
     private let repLabel = UILabel()
     private let tokenStepper = UIStepper()
     private let tokenLabel = UILabel()
-    private let warmupSwitch = UISwitch()
-    private let warmupLabel = UILabel()
     private let cooldownStepper = UIStepper()
     private let cooldownLabel = UILabel()
+    /// 「数据集」折叠头（点击展开/收起）
+    private let trackHeader = UIButton(type: .system)
+    /// 展开后的卡片：每条 track 一行（标题 + 滑条 + 说明）
+    private let trackCard = UIStackView()
+    private var trackSliders: [String: UISlider] = [:]
+    private var trackValueLabels: [String: UILabel] = [:]
     private let tempLabel = UILabel()
     private let datasetButton = UIButton(type: .system)
     private let startButton = UIButton(type: .system)
@@ -100,16 +111,74 @@ public final class MBBenchmarkViewController: UIViewController {
         repStepper.addTarget(self, action: #selector(repChanged), for: .valueChanged)
         repLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
 
-        tokenStepper.minimumValue = 1
-        tokenStepper.maximumValue = 256
-        tokenStepper.stepValue = 1
+        tokenStepper.minimumValue = 16
+        tokenStepper.maximumValue = 2048
+        tokenStepper.stepValue = 64
         tokenStepper.value = Double(decodeTokenLimit)
         tokenStepper.addTarget(self, action: #selector(tokenChanged), for: .valueChanged)
         tokenLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
 
-        warmupSwitch.isOn = warmupEnabled
-        warmupSwitch.addTarget(self, action: #selector(warmupChanged), for: .valueChanged)
-        warmupLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
+        // 折叠头：灰底圆角 + 尾部 chevron（系统原生观感，iOS 18~26 通用）
+        var headCfg = UIButton.Configuration.gray()
+        headCfg.title = "数据集"
+        headCfg.image = UIImage(systemName: "chevron.down")
+        headCfg.imagePlacement = .trailing
+        headCfg.imagePadding = 10
+        headCfg.cornerStyle = .medium
+        headCfg.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        trackHeader.configuration = headCfg
+        trackHeader.addTarget(self, action: #selector(toggleTrackList), for: .touchUpInside)
+
+        // 展开卡片：圆角容器（insetGrouped 观感）
+        trackCard.axis = .vertical
+        trackCard.spacing = 18
+        trackCard.isLayoutMarginsRelativeArrangement = true
+        trackCard.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 16, leading: 16,
+                                                                     bottom: 16, trailing: 16)
+        trackCard.backgroundColor = .secondarySystemGroupedBackground
+        trackCard.layer.cornerRadius = 12
+        trackCard.layer.cornerCurve = .continuous
+        trackCard.isHidden = true
+
+        for (i, t) in BenchmarkCaseStore.bundledTracks.enumerated() {
+            let total = BenchmarkCaseStore.trackTotal(t)
+
+            let name = UILabel()
+            name.text = t
+            name.font = .systemFont(ofSize: 15, weight: .semibold)
+
+            let value = UILabel()
+            value.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
+            value.textColor = .secondaryLabel
+            value.textAlignment = .right
+            value.setContentHuggingPriority(.required, for: .horizontal)
+            trackValueLabels[t] = value
+
+            let top = UIStackView(arrangedSubviews: [name, value])
+            top.axis = .horizontal
+            top.alignment = .firstBaseline
+
+            let slider = UISlider()
+            slider.minimumValue = 0
+            slider.maximumValue = Float(max(1, total))
+            slider.value = Float(min(plan[t] ?? 0, total))
+            slider.isContinuous = true
+            slider.tag = i
+            slider.isEnabled = total > 0
+            slider.addTarget(self, action: #selector(trackSliderChanged(_:)), for: .valueChanged)
+            trackSliders[t] = slider
+
+            let desc = UILabel()
+            desc.text = trackSummary(t)
+            desc.font = .systemFont(ofSize: 12)
+            desc.textColor = .secondaryLabel
+            desc.numberOfLines = 0
+
+            let row = UIStackView(arrangedSubviews: [top, slider, desc])
+            row.axis = .vertical
+            row.spacing = 4
+            trackCard.addArrangedSubview(row)
+        }
 
         cooldownStepper.minimumValue = 0
         cooldownStepper.maximumValue = 300
@@ -147,27 +216,21 @@ public final class MBBenchmarkViewController: UIViewController {
         resultTextView.heightAnchor.constraint(equalToConstant: 420).isActive = true
 
         let stack = UIStackView(arrangedSubviews: [
+            trackHeader,
+            trackCard,
+            makeHint("拖动滑条决定每条数据集本次跑多少条（0 = 不跑）。"
+                + "数据集随 App 分发、启动自动铺好，无需手动传输。"),
             makeSectionTitle("重复轮数"),
             hstack(repLabel, repStepper),
             makeHint("跨 case 的方差通常远大于同 case 重复间的方差，所以「多 case × 少重复」" +
                 "比「少 case × 多重复」信息量大。轮数主要用来估可复现性和压低标准误。"),
-            makeSectionTitle("固定输出 token 数"),
+            makeSectionTitle("输出 token 上限"),
             hstack(tokenLabel, tokenStepper),
-            makeHint("输出长度必须固定：权重走 SSD，输出越长搬运越多，长度不同则跨 case 不可比。" +
-                "达到该步数前**忽略 EOG**，保证每条长度一致。"),
-            makeSectionTitle("短预热"),
-            hstack(warmupSwitch, warmupLabel),
-            makeHint("正式跑批前先跑一句「\(BenchmarkRunConfig.warmupPrompt)」、只出 "
-                + "\(BenchmarkRunConfig.warmupTokens) 个 token，把专家层与 GPU 频率走热。"
-                + "这条会落盘留证但不计入统计。各轮之间还会轮转 case 顺序，避免位次冷热伪装成 case 差异。"),
-            makeSectionTitle("轮间冷却"),
-            hstack(cooldownLabel, cooldownStepper),
-            makeHint("每轮开始前静止等待，让 SoC 回到相近温度。长跑时建议 30~60 秒，" +
-                "否则热降频会让后面的轮次系统性变慢。"),
-            makeHint("内置 12 条真实 case（图来自 35BA3B_cases，提示词为文档原文）。" +
-                "提示词长度不等，会混进 prefill token 数差异，明细里已记 promptUTF8Length 供校正。"),
+            makeHint("只限上限，撞 EOG 会提前停（不同 case 输出长度可以不同）。"
+                + "设大一些能让需要长回答的 case 跑完。"),
             tempLabel,
-            datasetButton,
+            // 「重铺数据集」按钮暂不展示：低频运维操作，且文案容易让人以为是必做步骤。
+            // 逻辑（datasetButtonTapped / reinstallActiveTrack）保留，需要时可放回这里。
             hstack(startButton, cancelButton),
             exportButton,
             makeSectionTitle("进度与统计"),
@@ -214,11 +277,9 @@ public final class MBBenchmarkViewController: UIViewController {
     }
 
     private func updateStepperLabels() {
+        refreshTrackControls()
         repLabel.text = "\(repetitions) 轮"
-        tokenLabel.text = "\(decodeTokenLimit) token"
-        warmupLabel.text = warmupEnabled
-            ? "开启（「\(BenchmarkRunConfig.warmupPrompt)」\(BenchmarkRunConfig.warmupTokens) token）"
-            : "关闭"
+        tokenLabel.text = "≤ \(decodeTokenLimit) token"
         cooldownLabel.text = cooldownSec == 0 ? "不冷却" : "\(cooldownSec) 秒"
     }
 
@@ -234,7 +295,8 @@ public final class MBBenchmarkViewController: UIViewController {
                 self.cancelButton.isEnabled = running
                 self.repStepper.isEnabled = !running
                 self.tokenStepper.isEnabled = !running
-                self.warmupSwitch.isEnabled = !running
+                self.trackHeader.isEnabled = !running
+                for sl in self.trackSliders.values { sl.isEnabled = !running }
                 self.cooldownStepper.isEnabled = !running
                 self.datasetButton.isEnabled = !running
             }
@@ -275,9 +337,50 @@ public final class MBBenchmarkViewController: UIViewController {
         updateStepperLabels()
     }
 
-    @objc private func warmupChanged() {
-        warmupEnabled = warmupSwitch.isOn
-        updateStepperLabels()
+    /// 展开 / 收起数据集卡片。
+    @objc private func toggleTrackList() {
+        trackCard.isHidden.toggle()
+        refreshTrackControls()
+    }
+
+    /// 拖动滑条：取整、写回 plan、刷新标题。
+    @objc private func trackSliderChanged(_ sender: UISlider) {
+        let tracks = BenchmarkCaseStore.bundledTracks
+        guard sender.tag >= 0, sender.tag < tracks.count else { return }
+        let t = tracks[sender.tag]
+        let v = Int(sender.value.rounded())
+        sender.value = Float(v)
+        plan[t] = v
+        BenchmarkCaseStore.setPlan(plan)
+        refreshTrackControls()
+    }
+
+    /// 刷新折叠头（共 N 条）与每行的 "已选 / 总数"。
+    private func refreshTrackControls() {
+        var total = 0
+        for t in BenchmarkCaseStore.bundledTracks {
+            let n = plan[t] ?? 0
+            total += n
+            trackValueLabels[t]?.text = "\(n) / \(BenchmarkCaseStore.trackTotal(t))"
+        }
+        trackCaseCount = total
+
+        var cfg = trackHeader.configuration ?? UIButton.Configuration.gray()
+        cfg.title = total > 0 ? "数据集 · 共 \(total) 条" : "数据集 · 未选择"
+        cfg.image = UIImage(systemName: trackCard.isHidden ? "chevron.down" : "chevron.up")
+        trackHeader.configuration = cfg
+    }
+
+    /// 给每条 track 一句人话描述（加 track 时一并加）。
+    private func trackSummary(_ track: String) -> String {
+        switch track {
+        case "mmmu_qa_100":
+            return "MMMU 抽样，单图 + A-D 单选题"
+        case "mlperf_llm":
+            return "MLPerf Mobile v6.0（Tiny-MMLU 100 + Tiny-IFEval 33），纯文本"
+        default:
+            return "未知 track"
+        }
     }
 
     @objc private func cooldownChanged() {
@@ -304,17 +407,15 @@ public final class MBBenchmarkViewController: UIViewController {
         }
     }
 
-    /// 在「导出内置数据集」与「移除自定义数据集」之间切换。
+    /// 把 bundle 里的数据集重新铺到 Documents（覆盖手工改动）。
+    ///
+    /// 数据集现在随 App 一起分发、启动时自动铺好，所以这里不再是"导出/移除"，
+    /// 而是"重置"：改坏了图或提示词时点一下恢复出厂。
     @objc private func datasetButtonTapped() {
         do {
-            if BenchmarkCaseStore.currentSource() == .documents {
-                try BenchmarkSampleDataset.removeCustomDataset()
-                progressLabel.text = "已移除自定义数据集，恢复使用 App 内置数据集"
-            } else {
-                let n = try BenchmarkSampleDataset.exportBuiltinToDocuments()
-                progressLabel.text = "已导出 \(n) 个文件到 Documents/benchmark/，" +
-                    "可在「文件」App 里改提示词或换图"
-            }
+            let summary = try BenchmarkSampleDataset.reinstallActiveTrack()
+            progressLabel.text = "已重铺数据集（track=\(BenchmarkCaseStore.activeTrack())）：\(summary)\n"
+                + "可在「文件」App 的 Documents/benchmark/ 下改图或改提示词"
             refreshDatasetButtonTitle()
         } catch {
             progressLabel.text = "操作失败：\(error.localizedDescription)"
@@ -332,7 +433,7 @@ public final class MBBenchmarkViewController: UIViewController {
                 return
             }
             guard !cases.isEmpty else {
-                self.progressLabel.text = "cases.jsonl 里没有有效 case"
+                self.progressLabel.text = "当前数据集选择为空：拖一下滑条，让至少一条数据集 > 0"
                 return
             }
 
@@ -363,9 +464,8 @@ public final class MBBenchmarkViewController: UIViewController {
     }
 
     private func refreshDatasetButtonTitle() {
-        let isCustom = BenchmarkCaseStore.currentSource() == .documents
-        datasetButton.setTitle(isCustom ? "移除自定义数据集（改用内置）"
-                                        : "导出内置数据集到 Documents",
-                              for: .normal)
+        let track = BenchmarkCaseStore.activeTrack()
+        let n = (try? BenchmarkCaseStore.load().count) ?? 0
+        datasetButton.setTitle("重铺数据集到 Documents（\(track) · \(n) 条）", for: .normal)
     }
 }

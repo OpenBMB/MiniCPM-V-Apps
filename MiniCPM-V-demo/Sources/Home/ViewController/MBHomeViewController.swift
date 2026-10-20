@@ -517,6 +517,9 @@ import llama
         updateNavTitle()
     }
 
+    /// `-openBenchmark` 只自动跳一次（从子页面返回时不要再弹）
+    private var didAutoOpenBenchmark = false
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
@@ -528,6 +531,31 @@ import llama
             let current = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
             if current != "Voxcpm2Model" {
                 checkMultiModelLoadStatusAndLoadIt()
+            }
+        }
+
+        openBenchmarkIfRequested()
+    }
+
+    /// 调试用：`-openBenchmark` 启动参数会在模型加载完成后自动跳到「批量基准测试」页。
+    ///
+    /// 存在的意义只有一个：**自动化验证界面改动**（`pymobiledevice3` 能截图但点不了屏幕）。
+    /// 不带这个参数时零开销，不进任何产品路径。
+    private func openBenchmarkIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-openBenchmark") else { return }
+        guard !didAutoOpenBenchmark else { return }
+        didAutoOpenBenchmark = true
+
+        var tries = 0
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            tries += 1
+            if self.mtmdWrapperExample != nil {
+                timer.invalidate()
+                self.benchmarkEntryTapped()
+            } else if tries > 120 {
+                timer.invalidate()
+                print("[UI] -openBenchmark 等待模型超时")
             }
         }
     }

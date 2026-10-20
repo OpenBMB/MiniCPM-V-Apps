@@ -278,7 +278,7 @@ public struct BenchmarkRunResult: Codable, Identifiable {
             decodeTokenLimit: config.decodeTokenLimit,
             prewarmAfterImage: config.prewarmAfterImage,
             unloadMmproj: Self.mmprojUnloadEnabled,
-            datasetSource: BenchmarkCaseStore.currentSource().rawValue,
+            datasetSource: BenchmarkCaseStore.planDescription(),
             temperature: temperature,
             cachePolicy: Self.cachePolicyText,
             scenario: "SingleStream"
@@ -300,7 +300,8 @@ public struct BenchmarkRunResult: Codable, Identifiable {
     /// 这一点必须如实写出来，不能含糊。
     public static let cachePolicyText =
         "每个 case 前调用 clearKVCacheForNewTurn() 清空 KV；" +
-        "输出长度固定为 decodeTokenLimit（撞 EOG 仍继续解码到上限，见 MTMDWrapper）；" +
+        "输出长度受 decodeTokenLimit 约束：`-benchMaxTokens` 下它只是上限（撞 EOG 提前停），" +
+        "`-benchTokens` 下是固定步数（忽略 EOG 强行补满，见 MTMDWrapper）；" +
         "引擎内 MoE 专家 slot 缓存按进程存活期存在，无法逐 case 清空，" +
         "因此 case 顺序会影响专家命中率 —— 已用轮次轮转对冲，见 orderPolicy。"
 

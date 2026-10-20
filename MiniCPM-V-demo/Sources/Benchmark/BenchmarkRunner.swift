@@ -62,16 +62,30 @@ public struct BenchmarkRunConfig {
     /// 冷却期间不跑任何推理，只等待。
     public let cooldownSec: Double
 
+    /// 每条 case 前是否清 KV（默认清）。
+    ///
+    /// 日常对话路径**从来不调** `clearKVCacheForNewTurn()`，而 bench 每轮都调。
+    /// 排查「同一条 case、bench 比对话慢 10%」时用它做对照。
+    public let resetKVBeforeCase: Bool
+
+    /// `decodeTokenLimit` 是「上限」还是「固定步数」。
+    /// true = 允许模型撞 EOG 提前停（功耗测量用）；false = 历史行为，忽略 EOG。
+    public let stopAtEOG: Bool
+
     public init(repetitions: Int,
                 decodeTokenLimit: Int,
                 prewarmAfterImage: Bool = true,
-                warmupEnabled: Bool = true,
-                cooldownSec: Double = 0) {
+                warmupEnabled: Bool = false,
+                cooldownSec: Double = 0,
+                resetKVBeforeCase: Bool = true,
+                stopAtEOG: Bool = false) {
         self.repetitions = repetitions
         self.decodeTokenLimit = decodeTokenLimit
         self.prewarmAfterImage = prewarmAfterImage
         self.warmupEnabled = warmupEnabled
         self.cooldownSec = max(0, cooldownSec)
+        self.resetKVBeforeCase = resetKVBeforeCase
+        self.stopAtEOG = stopAtEOG
     }
 
     /// 实际要执行的 sample 总数（含那条短预热）
@@ -153,8 +167,12 @@ public final class BenchmarkRunner: ObservableObject {
         // 这不是「用户体验」优化，是**测量正确性**要求：息屏会让 App 进后台被系统挂起，
         // 跑批静默中断，而进程还活着 —— 表现就是「日志不动了、界面停在某一步」，
         // 很容易被误判成死锁。长跑（十几分钟）必须挡住自动锁屏。
+        // 注意：跑批模式（`-bench`）下这里**不能**在 defer 里恢复成 false。
+        // 功耗测量要靠 `-benchStay` 在同一进程里接着测「待机基线」，
+        // 一旦息屏，待机功率会从 ~2.3 W 掉到 ~0.8 W（实测 iPhone），
+        // 「纯计算 = B − 待机」会被凭空抬高 1.5 W 左右。
         UIApplication.shared.isIdleTimerDisabled = true
-        defer { UIApplication.shared.isIdleTimerDisabled = false }
+        defer { UIApplication.shared.isIdleTimerDisabled = BenchmarkLaunchCommand.isRequested }
 
         let runId = UUID().uuidString
         let wallStart = Date()
@@ -163,6 +181,7 @@ public final class BenchmarkRunner: ObservableObject {
 
         // 固定输出长度：复用 App 已有的 decodeTokenLimit（MTMDWrapper.swift:43）。
         example.mtmdWrapper.decodeTokenLimit = config.decodeTokenLimit
+        example.mtmdWrapper.stopAtEOG = config.stopAtEOG
 
         // 与 App 保持一致意味着：每个图像回合都会走一遍
         //   prefill_image（eager 编码）→ prewarm（**卸载视觉塔**）→ prefill_text（**重新
@@ -184,7 +203,25 @@ public final class BenchmarkRunner: ObservableObject {
         // 在释放旧 context 的那一刻进程被系统以 signal 9 杀掉（实测必现）。
         // 正常 App 流程永远是先图后文，走不到这条路径 —— 为了预热人为造出来不值得。
         // 复用 runOne 的完整链路（图编码 → 预热 → 文本 → prefill → decode）即可绕开。
-        if config.warmupEnabled, let wc = cases.first(where: { $0.image != nil }) ?? cases.first {
+        // 预热图的选择：
+        //   1) 优先借数据集里第一条带图 case（图文 track 自然满足）；
+        //   2) 纯文本 track（`mlperf_llm`）没有带图 case，此时**不能**退化到纯文本
+        //      （见上一条注释，会把 llama_context 重建掉、进程被 signal 9 杀掉），
+        //      改为借 track 目录里的 `warmup.png` 造一条临时 case；
+        //   3) 两者都没有 → 本次跳过预热（宁可少走一遍管线，也不能崩）。
+        var warmupCase: BenchmarkCase? = cases.first(where: { $0.image != nil })
+        if warmupCase == nil {
+            let probe = BenchmarkCaseStore.imageURL("warmup.png")
+            if FileManager.default.fileExists(atPath: probe.path) {
+                warmupCase = BenchmarkCase(key: -1,
+                                           image: "warmup.png",
+                                           text: BenchmarkRunConfig.warmupPrompt)
+            } else {
+                print("[BENCH] 无带图 case 也无 warmup.png，跳过预热（避免纯文本预热的 SIGKILL）")
+            }
+        }
+
+        if config.warmupEnabled, let wc = warmupCase {
             progressText = "预热中（固定图 + \(BenchmarkRunConfig.warmupTokens) token）…"
             let savedLimit = example.mtmdWrapper.decodeTokenLimit
             example.mtmdWrapper.decodeTokenLimit = BenchmarkRunConfig.warmupTokens
@@ -284,11 +321,15 @@ public final class BenchmarkRunner: ObservableObject {
         let thermalBefore = Self.thermalString()
         let batteryBefore = Self.batteryLevel()
         let batteryStateBefore = Self.batteryStateString()
+        // 任务 2：能量/磁盘 I/O/GPU 时长采样（case 前）
+        let energyBefore = BenchmarkEnergyProbe.take()
         let t0 = Date()
         var errorMsg: String?
 
         // ① 每个 case 从干净 KV 开始 —— 不清则上一条的上下文会改变 prefill 长度。
-        example.clearKVCacheForNewTurn()
+        if config.resetKVBeforeCase {
+            example.clearKVCacheForNewTurn()
+        }
 
         // ② 图
         //
@@ -308,11 +349,17 @@ public final class BenchmarkRunner: ObservableObject {
             }
         }
 
+        // 分阶段能量：图片处理 + 专家预热这一段结束
+        let energyAfterImage = BenchmarkEnergyProbe.take()
+
         // ③ 文本
         if errorMsg == nil {
             let ok = await example.addTextInBackground(c.text)
             if !ok { errorMsg = "文本 prefill 失败" }
         }
+
+        // 分阶段能量：prefill 结束（此时还没开始解码）
+        let energyAfterPrefill = BenchmarkEnergyProbe.take()
 
         // ④ 生成（固定步数，不等 EOG）
         if errorMsg == nil {
@@ -323,6 +370,23 @@ public final class BenchmarkRunner: ObservableObject {
 
         let wallMs = Date().timeIntervalSince(t0) * 1000.0
         let p = example.mtmdWrapper.lastPerf
+
+        // 任务 2 V1：能量采样（case 后）+ 诊断输出。
+        //
+        // V1 的目的只有一个：确认 `ri_energy_nj` / `ri_diskio_bytesread` / `gpu_time`
+        // 在 iOS 17.7 上**真的非零递增**。所以这里原始值与增量都打出来，
+        // 等 V2 定下口径后再收进 BenchmarkSample 的字段里。
+        let energyAfter = BenchmarkEnergyProbe.take()
+
+        NSLog("%@", BenchmarkEnergyProbe.debugLine("t0      ", energyBefore))
+        NSLog("%@", BenchmarkEnergyProbe.debugPhaseLine("图像+预热",
+                                                        energyBefore, energyAfterImage))
+        NSLog("%@", BenchmarkEnergyProbe.debugPhaseLine("prefill ",
+                                                        energyAfterImage, energyAfterPrefill))
+        NSLog("%@", BenchmarkEnergyProbe.debugPhaseLine("decode  ",
+                                                        energyAfterPrefill, energyAfter))
+        NSLog("%@", BenchmarkEnergyProbe.debugPhaseLine("整条case",
+                                                        energyBefore, energyAfter))
 
         return BenchmarkSample(
             runId: runId,

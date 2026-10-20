@@ -16,6 +16,7 @@
 // 直接用 C API 查「本进程还能分配多少」，用来给 ubatch 封顶 —— 这样不必依赖
 // Swift 层的 MBDeviceMemoryProbe（桥接层不该反向依赖 Swift）。
 #include <os/proc.h>
+#include <sys/resource.h>
 
 // Public llama.cpp headers exposed via llama.framework's modulemap.
 #include <llama/llama.h>
@@ -440,6 +441,32 @@ struct mb_mtmd_context {
     // Reported separately so prefill_ms stays "the send-turn work only".
     int32_t             perf_image_tokens = 0;
     double              perf_image_ms = 0;
+
+    // ── decode 循环分段计时（排查「bench 比日常对话慢」用，只在 EOG 时打一行）──
+    // dbg_gap_ms 是「上一次 loop 结束 → 本次 loop 开始」的间隔，涵盖 Swift 侧的
+    // Task.sleep(10ms) 让出、主线程调度、UI 刷新等**不在引擎内**的时间。
+    double              dbg_sample_ms = 0;      // llama_sampler_sample
+    double              dbg_llama_ms = 0;       // llama_decode（含 MoE 读盘等待）
+    double              dbg_gap_ms = 0;         // 引擎外的间隔
+    double              dbg_last_end_ms = 0;
+    int32_t             dbg_loops = 0;
+    // 真实闪存读字节（rusage ri_diskio_bytesread）。引擎报的 bytes 是
+    // 「窗口 miss × 专家大小」，**不等于**真的打到 NAND —— 命中页缓存的不算。
+    uint64_t            dbg_disk0 = 0;
+    uint64_t            dbg_disk_bytes = 0;
+    // CPU 周期/指令数（rusage ri_cycles / ri_instructions）。
+    // 用来把「llama_decode 剩下的那段时间」切成 CPU 侧（Metal 编码提交）
+    // 还是 GPU 侧（真在算）：CPU 计数一样但更慢 ⇒ 慢在 GPU。
+    uint64_t            dbg_cycles0 = 0;
+    uint64_t            dbg_instr0 = 0;
+    // 每步 llama_decode 的耗时样本：用来分辨「整体均匀变慢」还是「被抢占的长尾」。
+    std::vector<double> dbg_llama_samples;
+    // 调用方式（第一次 decode 时抓一次）
+    int32_t             dbg_n_ctx = 0;
+    int32_t             dbg_n_ubatch = 0;
+    int32_t             dbg_batch_tokens = 0;
+    int32_t             dbg_moe_k = 0;
+    int32_t             dbg_first_n_past = 0;
 
     ~mb_mtmd_context() {
         // spec 持有 ctx_tgt / ctx_dft 的裸指针，必须在两个 context 之前释放。
@@ -1687,6 +1714,30 @@ static void mb_toklog(const char * path, llama_token id) {
         return;
     }
     fprintf(stderr, "[TOKLOG] path=%s idx=%lld id=%d\n", path, idx++, (int) id);
+}
+
+// 进程级真实闪存读字节（含 mmap 页调入之外的所有 readsyscall 计费）。
+// 用来区分「引擎说读了 77 MiB/token」和「真的打到 NAND 多少」。
+// iOS SDK 里没有公开的 libproc.h，只声明用到的这一个符号。
+extern "C" int proc_pid_rusage(int pid, int flavor, rusage_info_t * buffer);
+
+static void mb_dbg_rusage(uint64_t * disk, uint64_t * cycles, uint64_t * instr) {
+    struct rusage_info_v4 ru;
+    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ru) != 0) {
+        if (disk) *disk = 0;
+        if (cycles) *cycles = 0;
+        if (instr) *instr = 0;
+        return;
+    }
+    if (disk)   *disk   = ru.ri_diskio_bytesread;
+    if (cycles) *cycles = ru.ri_cycles;
+    if (instr)  *instr  = ru.ri_instructions;
+}
+
+static uint64_t mb_dbg_diskio_bytes(void) {
+    uint64_t d = 0;
+    mb_dbg_rusage(&d, nullptr, nullptr);
+    return d;
 }
 
 static mb_mtmd_token spec_drain(mb_mtmd_context * ctx) {
@@ -3083,6 +3134,11 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     const double t0 = now_ms();
     perf_begin_turn_if_needed(ctx);
 
+    if (ctx->dbg_last_end_ms > 0) {
+        ctx->dbg_gap_ms += std::max(0.0, t0 - ctx->dbg_last_end_ms);
+    }
+    ctx->dbg_loops += 1;
+
     // ── 段 A：投机缓冲里还有片段（或只剩一个结束标记）就直接吐 ──
     if (!ctx->spec_out.empty() || ctx->spec_end_after) {
         return spec_drain(ctx);
@@ -3097,6 +3153,7 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     // 1) Sample one token from the most recent decode's logits.
     llama_token tok = llama_sampler_sample(ctx->sampler.get(), ctx->lctx.get(), /*idx=*/-1);
     llama_sampler_accept(ctx->sampler.get(), tok);
+    ctx->dbg_sample_ms += std::max(0.0, now_ms() - t0);
 
     const bool is_eog = llama_vocab_is_eog(ctx->vocab, tok);
     mb_toklog("base", tok);
@@ -3111,11 +3168,28 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     batch_add_one(ctx->batch, tok, ctx->n_past, /*seq=*/0);
     ctx->n_past++;
     apply_moe_k(ctx, ctx->moe_k_decode > 0 ? ctx->moe_k_decode : MB_MOE_K_DECODE);
-    if (llama_decode(ctx->lctx.get(), ctx->batch) != 0) {
-        ctx->perf_decode_ms += std::max(0.0, now_ms() - t0);
-        set_error(ctx, "loop: llama_decode failed");
-        result.is_end = true;
-        return result;
+    {
+        const double t_dec0 = now_ms();
+        const int rc = llama_decode(ctx->lctx.get(), ctx->batch);
+        const double dt = std::max(0.0, now_ms() - t_dec0);
+        ctx->dbg_llama_ms += dt;
+        ctx->dbg_llama_samples.push_back(dt);
+        if (ctx->dbg_loops <= 1) {
+            ctx->dbg_n_ctx = llama_n_ctx(ctx->lctx.get());
+            ctx->dbg_n_ubatch = llama_n_ubatch(ctx->lctx.get());
+            ctx->dbg_batch_tokens = ctx->batch.n_tokens;
+            ctx->dbg_moe_k = ctx->moe_k_decode;
+            ctx->dbg_first_n_past = ctx->n_past;
+            ctx->dbg_disk0 = mb_dbg_diskio_bytes();
+            mb_dbg_rusage(nullptr, &ctx->dbg_cycles0, &ctx->dbg_instr0);
+        }
+        if (rc != 0) {
+            ctx->perf_decode_ms += std::max(0.0, now_ms() - t0);
+            ctx->dbg_last_end_ms = now_ms();
+            set_error(ctx, "loop: llama_decode failed");
+            result.is_end = true;
+            return result;
+        }
     }
 
     ctx->perf_decode_tokens += 1;
@@ -3139,6 +3213,57 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     }
 
     if (is_eog) {
+        // 一整代结束，把 decode 循环的时间拆开打一行。
+        // 用来定位「bench 比日常对话慢」到底慢在引擎内还是引擎外。
+        {
+            const double total = ctx->perf_decode_ms;
+            const double other = std::max(0.0, total - ctx->dbg_llama_ms - ctx->dbg_sample_ms);
+            const int n = std::max(1, ctx->dbg_loops);
+            auto & v = ctx->dbg_llama_samples;
+            std::sort(v.begin(), v.end());
+            const double p50 = v.empty() ? 0 : v[v.size() * 50 / 100];
+            const double p90 = v.empty() ? 0 : v[v.size() * 90 / 100];
+            const double p99 = v.empty() ? 0 : v[v.size() * 99 / 100];
+            const double mx  = v.empty() ? 0 : v.back();
+            mb_logf("[MBMtmd] loop split: n=%d | 每步合计 %.2f ms = llama_decode %.2f "
+                    "+ sample %.2f + 其余 %.2f | 步间隔(引擎外) %.2f ms | 端到端 %.2f ms/tok",
+                    ctx->dbg_loops, total / n, ctx->dbg_llama_ms / n,
+                    ctx->dbg_sample_ms / n, other / n, ctx->dbg_gap_ms / n,
+                    (total + ctx->dbg_gap_ms) / n);
+            mb_logf("[MBMtmd] loop split 分布: llama_decode p50=%.2f p90=%.2f p99=%.2f max=%.2f ms"
+                    " | 调用参数 n_ctx=%d n_ubatch=%d batch_tok=%d moe_k=%d n_past0=%d",
+                    p50, p90, p99, mx, ctx->dbg_n_ctx, ctx->dbg_n_ubatch,
+                    ctx->dbg_batch_tokens, ctx->dbg_moe_k, ctx->dbg_first_n_past);
+            {
+                const uint64_t now_disk = mb_dbg_diskio_bytes();
+                const uint64_t d = (ctx->dbg_disk0 && now_disk > ctx->dbg_disk0)
+                                 ? (now_disk - ctx->dbg_disk0) : 0;
+                mb_logf("[MBMtmd] loop split 闪存实读: %.1f MiB 全程 / %.2f MiB per token"
+                        "（引擎口径的另一份计数见 moe-ssd total[decode]）",
+                        d / 1048576.0, d / 1048576.0 / std::max(1, ctx->dbg_loops));
+
+                // CPU 侧成本：和 llama_decode 的耗时并排看，
+                // CPU 计数相同而墙钟更长 ⇒ 慢在 GPU/驱动，不是 App 也不是 CPU 编码。
+                uint64_t cyc = 0, ins = 0;
+                mb_dbg_rusage(nullptr, &cyc, &ins);
+                const int nn = std::max(1, ctx->dbg_loops);
+                const double dcyc = (ctx->dbg_cycles0 && cyc > ctx->dbg_cycles0)
+                                  ? (double) (cyc - ctx->dbg_cycles0) / nn : 0.0;
+                const double dins = (ctx->dbg_instr0 && ins > ctx->dbg_instr0)
+                                  ? (double) (ins - ctx->dbg_instr0) / nn : 0.0;
+                mb_logf("[MBMtmd] loop split CPU: %.1f M cycles/tok, %.1f M instr/tok"
+                        "（读数失败的机型会显示 0）", dcyc / 1e6, dins / 1e6);
+                ctx->dbg_disk0 = 0;
+                ctx->dbg_cycles0 = 0;
+                ctx->dbg_instr0 = 0;
+            }
+            v.clear();
+            ctx->dbg_sample_ms = 0;
+            ctx->dbg_llama_ms = 0;
+            ctx->dbg_gap_ms = 0;
+            ctx->dbg_loops = 0;
+            ctx->dbg_last_end_ms = 0;
+        }
         // Flush any remaining cached bytes on EOG (lossy but ensures we
         // never silently eat trailing output).
         if (!ctx->cached_piece.empty()) {
@@ -3151,6 +3276,7 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
             }
         }
         result.is_end = true;
+        ctx->dbg_last_end_ms = now_ms();
         return result;
     }
 
@@ -3173,5 +3299,6 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     //       for the next byte token to complete the sequence.
 
     result.is_end = false;
+    ctx->dbg_last_end_ms = now_ms();
     return result;
 }

@@ -280,7 +280,12 @@ public class MTMDWrapperExample: ObservableObject {
                 modelPath: modelPath,
                 mmprojPath: "",
                 nCtx: nCtx ?? 4096,
-                temperature: 0.6,
+                // 温度**故意不传**：用 MTMDParams 的默认值（0.0 = 贪心），
+                // 与多模态 init 路径同源。这里曾经写死 0.6，后果有两个：
+                //   1) 同一 prompt 两次运行输出不同，纯文本路径无法复现；
+                //   2) 跑批的温度守卫（BenchmarkRunner.effectiveTemperature）
+                //      读到 0.6 直接拒跑 —— 这正是 -moeTextOnly 下 -bench 跑不起来的原因。
+                // 不传参是为了让它永远跟随 MTMDParams 的默认值，两条路径不会再次漂移。
                 useGPU: useGPU,
                 mmprojUseGPU: false,
                 warmup: false,
@@ -302,7 +307,8 @@ public class MTMDWrapperExample: ObservableObject {
             )
             self.params = params
             try await mtmdWrapper.initializeTextOnly(with: params)
-            print("MTMDWrapperExample: text-only init, n_ctx = \(params.nCtx), n_ubatch = \(nUbatch), temp = 0.6, specDraftNMax = \(params.specDraftNMax), draft = \(draftModelPath.isEmpty ? "(none)" : draftModelPath)")
+            // 以前这里把 temp 写死成 "0.6"，与真实生效值脱节 —— 日志撒谎比不记更糟。
+            print("MTMDWrapperExample: text-only init, n_ctx = \(params.nCtx), n_ubatch = \(nUbatch), temp = \(params.temperature), specDraftNMax = \(params.specDraftNMax), draft = \(draftModelPath.isEmpty ? "(none)" : draftModelPath)")
             self.multiModelLoadingSuccess = true
         } catch {
             errorMessage = error.localizedDescription

@@ -132,6 +132,8 @@
 		BFAC3DD14512B7CAAB1604F9 /* Benchmark in Resources */ = {isa = PBXBuildFile; fileRef = BF78051E7694D99A804ECCFE /* Benchmark */; };
 		BE17A8DCE57166FC3C4EED64 /* BenchmarkLaunchCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE747BFB57BEFDB4EE2B1AE9 /* BenchmarkLaunchCommand.swift */; };
 		BEC3653BE7BD341F46DAC06E /* BenchmarkReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5B7672C8FCB8653AC145D8 /* BenchmarkReport.swift */; };
+		BEC6C1C866FB6608A2EBA960 /* BenchmarkEnergyProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = BECF6F44BE4843C8E401FC72 /* BenchmarkEnergyProbe.swift */; };
+		BE84D42692E906F559918BF9 /* BenchmarkIOReportProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA9CBAA83095877D8964092 /* BenchmarkIOReportProbe.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -292,6 +294,8 @@
 		BF78051E7694D99A804ECCFE /* Benchmark */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Benchmark; sourceTree = "<group>"; };
 		BE747BFB57BEFDB4EE2B1AE9 /* BenchmarkLaunchCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkLaunchCommand.swift; sourceTree = "<group>"; };
 		BE5B7672C8FCB8653AC145D8 /* BenchmarkReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkReport.swift; sourceTree = "<group>"; };
+		BECF6F44BE4843C8E401FC72 /* BenchmarkEnergyProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkEnergyProbe.swift; sourceTree = "<group>"; };
+		BEA9CBAA83095877D8964092 /* BenchmarkIOReportProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BenchmarkIOReportProbe.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -797,6 +801,8 @@
 		BE1AB0CD3F2A1EB84591F3EB /* Benchmark */ = {
 			isa = PBXGroup;
 			children = (
+				BEA9CBAA83095877D8964092 /* BenchmarkIOReportProbe.swift */,
+				BECF6F44BE4843C8E401FC72 /* BenchmarkEnergyProbe.swift */,
 				BE747BFB57BEFDB4EE2B1AE9 /* BenchmarkLaunchCommand.swift */,
 				BE5B7672C8FCB8653AC145D8 /* BenchmarkReport.swift */,
 				BEFACAC8D396C3B519161D42 /* BenchmarkCase.swift */,
@@ -955,6 +961,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BE84D42692E906F559918BF9 /* BenchmarkIOReportProbe.swift in Sources */,
+				BEC6C1C866FB6608A2EBA960 /* BenchmarkEnergyProbe.swift in Sources */,
 				BE17A8DCE57166FC3C4EED64 /* BenchmarkLaunchCommand.swift in Sources */,
 				BEC3653BE7BD341F46DAC06E /* BenchmarkReport.swift in Sources */,
 				BE102BADD14439940D3DE64E /* BenchmarkCase.swift in Sources */,

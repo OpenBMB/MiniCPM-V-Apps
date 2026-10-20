@@ -1,0 +1,49 @@
+{
+  "created": "2026-10-20",
+  "tracks": {
+    "mlperf_llm": {
+      "cases": 133,
+      "mmlu": 100,
+      "ifeval": 33,
+      "files": [
+        "cases.jsonl",
+        "cases_short.jsonl",
+        "cases_with_warmup.jsonl",
+        "labels.jsonl",
+        "warmup.png",
+        "README.md"
+      ],
+      "cases_sha256": "78b6e95ac12a44bfab4c226dfe035649fafb91cebf341587376f7c7170944692",
+      "labels_sha256": "f7b29c73e46aa3f8f8605d99f632ad299425bfae8fc7ffd46acb33a979f2bcdd",
+      "sources": [
+        "https://github.com/mlcommons/mobile_open",
+        "https://github.com/mlcommons/mobile_app_open",
+        "https://mobile.mlcommons-storage.org/app-resources/datasets/v6_0/tinymmlu.tfrecord",
+        "https://mobile.mlcommons-storage.org/app-resources/datasets/v6_0/tiny33_ifeval.tfrecord"
+      ],
+      "license": "MLPerf repos Apache-2.0; Tiny-MMLU derives from MMLU (MIT); IFEval from google-research (Apache-2.0)"
+    },
+    "mmmu_qa_100": {
+      "cases": 100,
+      "subjects": 30,
+      "seed": 20261020,
+      "files": [
+        "cases.jsonl",
+        "labels.jsonl",
+        "README.md",
+        "100 images (flat)"
+      ],
+      "cases_sha256": "4da17a1ee4bff8b3281416072741b2561a4c22fe14bc569513bfa2f09f4b4d65",
+      "labels_sha256": "68e122958d10850fd725f70b460578ce558cd74d24ebe594cf7d86078f43c041",
+      "source": "MMMU/MMMU validation split, https://huggingface.co/datasets/MMMU/MMMU",
+      "license": "Apache-2.0 (dataset card)",
+      "selection": "single-image only; multiple-choice only; answer A-D; 3 per subject + 10 extra; seed 20261020",
+      "answer_distribution": {
+        "C": 22,
+        "B": 34,
+        "A": 30,
+        "D": 14
+      }
+    }
+  }
+}
