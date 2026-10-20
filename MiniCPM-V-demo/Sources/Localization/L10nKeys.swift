@@ -55,6 +55,7 @@ public enum L {
         public static let rowLookaheadPrefetchDepth       = "settings.row.lookaheadPrefetchDepth"
         public static let rowDspark          = "settings.row.dspark"
         public static let rowAbout           = "settings.row.about"
+        public static let rowBenchmark       = "settings.row.benchmark"
         public static let dsparkHint         = "settings.dspark.hint"
         public static let dsparkDraftMissingTitle    = "settings.dspark.draftMissing.title"
         public static let dsparkDraftMissingBody     = "settings.dspark.draftMissing.body"

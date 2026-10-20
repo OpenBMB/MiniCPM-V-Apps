@@ -42,6 +42,61 @@ public class MTMDWrapper: ObservableObject {
     /// 生成长度随模型输出变化，t/s 会混入"生成了多长"这个无关变量。
     public var decodeTokenLimit: Int = 0
 
+    /// decode 循环每步的让出时长（纳秒），由 `-genSleepMs N` 覆盖，默认 10 ms。
+    ///
+    /// 这个让出原本是「避免过度占用 CPU」，但实测它是 decode 速度的一大变量：
+    /// 每步 GPU 计算只有 ~30 ms，中间空出 10 ms 会让 GPU 的 DVFS 掉档，
+    /// 下一步的计算因此变慢（同一条 case 在「界面持续渲染」的对话路径里快 15~17%）。
+    /// 传 0 即可让 GPU 队列保持饱和，用于对照实验。
+    ///
+    /// 默认值按路径区分：**bench 用 3 ms，日常对话保持 10 ms**。
+    /// 依据是实测（月相 case，203 token）：
+    ///   让出 10 ms → 17.5 t/s；3 ms → 22.4 t/s；0 ms → 20.6 t/s（采样时反而要等 GPU）。
+    /// 对话路径之所以"看起来快"，是因为那 10 ms 被界面渲染填满了、GPU 不掉档；
+    /// bench 没有渲染，10 ms 就等于把 GPU 队列抽空。
+    /// 对话侧行为本次不动（产品决策另说），只用 `-genSleepMs` 可覆盖调试。
+    private static let genSleepNanos: UInt64 = {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-genSleepMs"), i + 1 < args.count, let v = Int(args[i + 1]) {
+            return UInt64(max(0, min(v, 1000))) * 1_000_000
+        }
+        return args.contains("-bench") ? 3_000_000 : 10_000_000
+    }()
+
+    /// 目标 TPOT（毫秒/token），0 = 不配速。由 `-benchTpotMs N` 设置。
+    ///
+    /// 用途：让**不读盘**的 B 档按 A 档的速度跑，否则两档 GPU 占空比差一倍多，
+    /// 功率做差衡量的是吞吐差异而不是搬运代价（iPhone 上实测 B 快 2.45 倍）。
+    private static let benchTpotNanos: UInt64 = {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-benchTpotMs"), i + 1 < args.count, let v = Int(args[i + 1]) {
+            return UInt64(max(0, min(v, 60_000))) * 1_000_000
+        }
+        return 0
+    }()
+
+    /// 本步让出：至少 `genSleepNanos`；若设了 TPOT 且本步太快，补到目标间隔。
+    private static func pace(stepStart: Date) async {
+        var waitNanos = genSleepNanos
+        if benchTpotNanos > 0 {
+            let elapsedNanos = Date().timeIntervalSince(stepStart) * 1_000_000_000.0
+            let remain = Double(benchTpotNanos) - elapsedNanos
+            if remain > 0 {
+                waitNanos = max(waitNanos, UInt64(remain))
+            }
+        }
+        if waitNanos > 0 {
+            try? await Task.sleep(nanoseconds: waitNanos)
+        }
+    }
+
+    /// `true` 时 `decodeTokenLimit` 退化为**上限**：撞 EOG 就停，只有跑到上限才强制截断。
+    /// `false`（历史行为）时才忽略 EOG、强行生成到固定步数。
+    ///
+    /// 功耗测量应该用 `true`：固定步数会把输出长度硬拽到上限，
+    /// 让 A 档和日常对话的 token 序列不再是同一条，横向比就没意义了。
+    public var stopAtEOG: Bool = false
+
     /// 26=V2.6, 40=V4.0, 46/460/461=V4.6, 47=V4.7 MoE SSD, 5=MiniCPM5
     public private(set) var modelVersion: Int = 0
 
@@ -55,7 +110,13 @@ public class MTMDWrapper: ObservableObject {
     private var context: OpaquePointer?
     
     /// 生成参数
-    private var params: MTMDParams?
+    /// 初始化参数。
+    ///
+    /// 放宽为 internal + private(set)：批量基准测试需要读回实际生效的采样温度，
+    /// 用来在跑批前拦住「温度非 0 → 结果不可复现」这种情况
+    /// （MLPerf `mobile_inference_rules.adoc:104-117` 只允许浮点序 / 输入随机遍历 /
+    /// 舍入三种非确定性，采样随机不在其中）。只放开读，写仍在类型内部。
+    private(set) var params: MTMDParams?
     
     /// 生成任务
     private var generationTask: Task<Void, Never>?
@@ -552,6 +613,8 @@ public class MTMDWrapper: ObservableObject {
 
         // 生成循环
         while !Task.isCancelled {
+            // 本步起点：配速（`-benchTpotMs`）以「相邻 token 的起始间隔」为准
+            let stepStart = Date()
 
             // 在后台线程执行 C 函数调用
             let cToken = await withCheckedContinuation { continuation in
@@ -596,7 +659,64 @@ public class MTMDWrapper: ObservableObject {
 
             // 检查是否生成完成
             if cToken.is_end {
+                // ── 基准固定步数模式：**忽略 EOG**，继续解码到上限 ──
+                //
+                // 为什么必须忽略：`decodeTokenLimit` 原本只是「最多生成多少」，撞 EOG 就提前停。
+                // 实测 12 条 case × 2 轮里只有 12/24 能跑满 256，其余在 53~222 就停了。
+                // 输出长度不同 → decode 步数不同 → 单条 wall 与能耗不可跨 case 比较，
+                // 而功耗拆解恰恰要横向比。MLPerf 性能模式同样要求「固定输出长度、忽略 EOG」。
+                //
+                // 安全性：桥接层在返回 is_end 之前**已经把 EOG 喂进 KV 并计入 decode_tokens**
+                // （MBMtmd.mm:3084-3098），所以继续调 mb_mtmd_loop 时 n_past 连续，
+                // 不会出现位置空洞。
+                if decodeTokenLimit > 0 && !stopAtEOG {
+                    // 但要区分「EOG」与「解码失败」—— 后者同样返回 is_end。
+                    // 出错时 last_error 非空，必须停，否则会在坏状态上空转。
+                    let errPtr = mb_mtmd_get_last_error(ctx)
+                    let errMsg = errPtr != nil ? String(cString: errPtr!) : ""
+                    if !errMsg.isEmpty {
+                        lastPerf = mb_mtmd_perf_snapshot(ctx)
+                        updateGenerationState(.failed(.generationFailed(errMsg)))
+                        print("MTMDWrapper: 固定步数模式下解码失败，中止：\(errMsg)")
+                        generationTask = nil
+                        return
+                    }
+
+                    nDecoded += 1
+                    if nDecoded >= decodeTokenLimit {
+                        lastPerf = mb_mtmd_perf_snapshot(ctx)
+                        mb_mtmd_log_text("OUTPUT(fixed-length)", accumulated)
+                        updateGenerationState(.completed)
+                        print("MTMDWrapper: 达到固定步数 \(decodeTokenLimit)（期间已忽略 EOG）")
+                        generationTask = nil
+                        return
+                    }
+                    // 与正常路径保持同样的让出节奏（含 TPOT 配速），
+                    // 否则基准路径的 GPU 占空比会与正常路径不同。
+                    await Self.pace(stepStart: stepStart)
+                    continue
+                }
+
                 lastPerf = mb_mtmd_perf_snapshot(ctx)
+                // 自然结束模式同样要区分「真 EOG」与「解码失败」——
+                // 固定步数分支（上面）早就做了，这里漏了：桥接层一旦带错误返回
+                // is_end，会被当成正常结束，表现就是「只生成 1 个 token 就停」且无报错。
+                let errPtr = mb_mtmd_get_last_error(ctx)
+                let errMsg = errPtr != nil ? String(cString: errPtr!) : ""
+                if !errMsg.isEmpty {
+                    updateGenerationState(.failed(.generationFailed(errMsg)))
+                    print("MTMDWrapper: 自然结束模式下解码失败，中止：\(errMsg)")
+                    generationTask = nil
+                    return
+                }
+                if nDecoded <= 1 {
+                    // 实测 `-benchTokens 0/-1` 下第 1 个 token 就收到 is_end，
+                    // 而同样 prompt 在固定步数模式（忽略 is_end 继续跑）能正常吐满
+                    // 203 个 token —— 说明这个 is_end 是假的。先把现场打全便于定位，
+                    // 不在这里硬续跑（那会污染自然停止的语义）。
+                    print("MTMDWrapper: ⚠️ 自然结束：第 \(nDecoded) 个 token 就收到 is_end"
+                          + "（已产出 \(accumulated.utf8.count) 字节，last_error 为空），疑似假 EOG")
+                }
                 mb_mtmd_log_text("OUTPUT(full)", accumulated)
                 updateGenerationState(.completed)
                 print("MTMDWrapper: 生成完成: \(fullOutput)")
@@ -612,15 +732,16 @@ public class MTMDWrapper: ObservableObject {
             nDecoded += 1
             if decodeTokenLimit > 0 && nDecoded >= decodeTokenLimit {
                 lastPerf = mb_mtmd_perf_snapshot(ctx)
-                mb_mtmd_log_text("OUTPUT(full)", accumulated)
+                // 与「撞 EOG 自然结束」区分开：这里是**被上限截断**。
+                mb_mtmd_log_text("OUTPUT(max-tokens)", accumulated)
                 updateGenerationState(.completed)
                 print("MTMDWrapper: 达到固定步数上限 \(decodeTokenLimit)，停止生成")
                 generationTask = nil
                 return
             }
 
-            // 避免过度占用 CPU
-            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+            // 让出 + 配速（`-genSleepMs` / `-benchTpotMs`）。
+            await Self.pace(stepStart: stepStart)
         }
 
         // 用户点了停止：仍留下这一轮已经跑过的 prefill / decode 数据。

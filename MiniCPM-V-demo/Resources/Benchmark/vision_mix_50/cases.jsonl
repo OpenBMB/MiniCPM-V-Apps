@@ -1,0 +1,50 @@
+{"key": 3001, "image": "nutrition.png", "text": "吃两杯这种食物，会摄入多少千卡和多少毫克钠？请写出计算过程。"}
+{"key": 3002, "image": "pisa.jpg", "text": "What is the name of this landmark, and in which country is it located?"}
+{"key": 3003, "image": "eclipse.jpg", "text": "Which diagram shows the Sun being hidden from an observer on Earth, and which object blocks it?"}
+{"key": 3004, "image": "earthrise.jpg", "text": "月面被阳光照亮时，天空为什么仍是黑色，而不像地球白天那样蓝？"}
+{"key": 3005, "image": "brown.jpg", "text": "What are the three handwritten items on the paper, from top to bottom?"}
+{"key": 3006, "image": "cafe.jpg", "text": "把 Espresso、Doppio、Cortado 按图中价格从高到低排列，并列出价格。"}
+{"key": 3007, "image": "hours.jpg", "text": "Turn the opening hours into a table with two columns: Day and Hours."}
+{"key": 3008, "image": "skyline.jpg", "text": "图中所拍到的是什么样的景象？中间那个最高的是个啥？"}
+{"key": 3009, "image": "notes_table.png", "text": "把图中的笔记整理成一个表格"}
+{"key": 3010, "image": "moon.png", "text": "判断图中的月相"}
+{"key": 3011, "image": "moon.png", "text": "图中的场景最可能出现在农历的哪个时间段？"}
+{"key": 3012, "image": "moon.png", "text": "这张照片是我（在北半球）晚上的时候朝向南偏西的天空拍到的，图中右侧为西边，请判断现在最可能是农历的什么时候？这张照片最可能是一天当中的几点钟拍的？"}
+{"key": 3013, "image": "tetrahedron.png", "text": "如图，ABCD 是一个正四面体。请计算二面角 A-CD-B 的大小，并给出推导过程。"}
+{"key": 3014, "image": "minard.png", "text": "What was the coldest temperature recorded on this chart, in Celsius, and on what date? Explain the conversion briefly."}
+{"key": 3015, "image": "dunhuang.png", "text": "早鸟票已结束。两位35岁家长带两个10岁孩子和一位68岁老人看展，怎么买最便宜？比全部单买省多少？"}
+{"key": 3016, "image": "blackboard.png", "text": "Could you summarize what's on the board?"}
+{"key": 3017, "image": "math_problem.jpg", "text": "这道题解答对了吗"}
+{"key": 3018, "image": "handwritten_notes.jpg", "text": "把这个笔记转成 markdown 格式"}
+{"key": 3019, "image": "receipt.png", "text": "看看我都买了什么，花了多少钱？"}
+{"key": 3020, "image": "red_straw.png", "text": "这个现象发生的原因是什么？"}
+{"key": 3021, "image": "boarding_pass_pr498.jpg", "text": "Extract flight information and output it as JSON."}
+{"key": 3022, "image": "drink_menu.jpg", "text": "帮我点一杯卡布奇诺以及一份曲奇饼干，算算多少钱"}
+{"key": 3023, "image": "fastfood_menu.jpg", "text": "想喝点饮料，请帮我把菜单的饮料翻译成中文"}
+{"key": 3024, "image": "labyrinth.png", "text": "哪个颜色的路径可以从A点走到C点？"}
+{"key": 3025, "image": "boarding_pass_mu2944.png", "text": "请提取一下航班号和日期，用 json 格式返回"}
+{"key": 3026, "image": "cat.png", "text": "图中是什么动物？它看起来在做什么？"}
+{"key": 3027, "image": "earthrise.jpg", "text": "图中从月平线上升起的天体是什么？请描述它的样子和画面的整体氛围。"}
+{"key": 3028, "image": "oculus.png", "text": "图中白色主体建筑是什么颜色？请描述它的外观特征。"}
+{"key": 3029, "image": "carlsbad_sign.png", "text": "这张路牌属于哪个国家公园？请说明判断依据。"}
+{"key": 3030, "image": "cafe.jpg", "text": "这张图是什么场所的什么标识？用一句话回答，不超过20字。"}
+{"key": 3031, "image": "cat.png", "text": "用一句话描述这只猫的外观（不超过30字），不要分点。"}
+{"key": 3032, "image": "lake.jpg", "text": "用一句话描述这张照片（不超过30字）。"}
+{"key": 3033, "image": "pisa.jpg", "text": "用一句话描述这张照片的构图（不超过30字）。"}
+{"key": 3034, "image": "earthrise.jpg", "text": "用两句话描述这个画面，不要解释成因。"}
+{"key": 3035, "image": "colorful_city.jpg", "text": "用一句话描述这张照片（不超过30字）。"}
+{"key": 3036, "image": "red_straw.png", "text": "用一句话描述这张照片（不超过30字）。"}
+{"key": 3037, "image": "lake.jpg", "text": "我在写旅行日记，帮我用一句话给这张照片配文，不超过25字。"}
+{"key": 3038, "image": "cat.png", "text": "我想发朋友圈，帮我想一句简短文案，不超过20字。"}
+{"key": 3039, "image": "colorful_city.jpg", "text": "朋友问这张照片在哪里拍的，你会怎么用一句话介绍？不要猜具体城市。"}
+{"key": 3040, "image": "drink_menu.jpg", "text": "我不想喝咖啡，菜单里 Tea & Non-Coffee 一栏有哪些饮品？只列名称。"}
+{"key": 3041, "image": "nutrition.png", "text": "这份食物每份含多少毫克钠？请说明你是从图中哪一行读到的。"}
+{"key": 3042, "image": "nutrition.png", "text": "吃两份这种食物，摄入的钠大约占每日参考值的百分之多少？请写出算式并简单说明。"}
+{"key": 3043, "image": "drink_menu.jpg", "text": "Americano 和 Latte 各点一杯，一共多少美元？请写出算式。"}
+{"key": 3044, "image": "fastfood_menu.jpg", "text": "两个芝士汉堡加一份薯条一共多少美元？请写出算式。"}
+{"key": 3045, "image": "hours.jpg", "text": "周六营业几个小时？请说明营业时间。"}
+{"key": 3046, "image": "dunhuang.png", "text": "成人票和早鸟票相差多少元？请说明两种票价分别是多少。"}
+{"key": 3047, "image": "receipt.png", "text": "小票上最贵的一件商品多少钱？请说明是哪件商品。"}
+{"key": 3048, "image": "sales_chart.png", "text": "哪支队伍的直销销售额最高？请说明各队的大致数值。"}
+{"key": 3049, "image": "sales_chart.png", "text": "Team C 的直销和电话销售相差多少？请写出算式。"}
+{"key": 3050, "image": "pattern_puzzle.png", "text": "Which option completes the pattern? Answer with one letter only."}

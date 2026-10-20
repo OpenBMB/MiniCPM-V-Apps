@@ -1,0 +1,184 @@
+{
+  "track": "vision_mix_50",
+  "generated": "2026-10-20",
+  "cases": 50,
+  "reviewed_cases": 25,
+  "self_cases": 25,
+  "images": 30,
+  "image_bytes": 18568663,
+  "categories": {
+    "ocr_math": 12,
+    "recognition": 8,
+    "science_qa": 3,
+    "ocr_extraction": 2,
+    "ocr_table": 2,
+    "reasoning": 2,
+    "math": 2,
+    "chart_reasoning": 1,
+    "description": 7,
+    "ocr_structure": 1,
+    "ocr_json": 2,
+    "ocr_translation": 1,
+    "logic": 2,
+    "dialogue": 3,
+    "chart_reading": 2
+  },
+  "sources": [
+    "showcase_1b",
+    "showcase_cases",
+    "showcase_46",
+    "self"
+  ],
+  "files": [
+    {
+      "name": "blackboard.png",
+      "bytes": 1216328,
+      "sha256": "1273ffd8bc0582920e8be7e1d95b4df16bb13c36d71bcc366bbce3c409228177"
+    },
+    {
+      "name": "boarding_pass_mu2944.png",
+      "bytes": 718233,
+      "sha256": "68499cc164b5ebdd3882210f323bd449869ed089cc11291a131b06317cd94c54"
+    },
+    {
+      "name": "boarding_pass_pr498.jpg",
+      "bytes": 125959,
+      "sha256": "e9c1a8bb8cdff9beb9774f99331e3c2805d925d294808a1a6722c3ea68a88f78"
+    },
+    {
+      "name": "brown.jpg",
+      "bytes": 37947,
+      "sha256": "3783d269e2442a88191952a8b4d646e2bbf9a478a1ed3af1679d116450df5c3e"
+    },
+    {
+      "name": "cafe.jpg",
+      "bytes": 554794,
+      "sha256": "461033f33e42f019eeecfa0da7f8b5f1e728284d5365a05b7da8e4430cd633dc"
+    },
+    {
+      "name": "carlsbad_sign.png",
+      "bytes": 799546,
+      "sha256": "7a756c1980c53d7799f8a0d28bf899a132a2aed9d670caeed2a2501335ed62ee"
+    },
+    {
+      "name": "cat.png",
+      "bytes": 74380,
+      "sha256": "f90812b21d5a9f180e2c4072c11eeb1f976ec08ecf7acad5239de6721068625b"
+    },
+    {
+      "name": "colorful_city.jpg",
+      "bytes": 1274342,
+      "sha256": "a67a10142198ae9acc4650fa7b9f4c0ba057087c94d417eb37145bcde095218d"
+    },
+    {
+      "name": "drink_menu.jpg",
+      "bytes": 162518,
+      "sha256": "5871768faeb1dda087a7a3ee7c354d12ad960597e832c343b4dad3f1f6129fbf"
+    },
+    {
+      "name": "dunhuang.png",
+      "bytes": 886336,
+      "sha256": "2e54a7c3f43a797f9865b11ebc62a5851d8c3e27af00de32c6c44ee0c9fce8ee"
+    },
+    {
+      "name": "earthrise.jpg",
+      "bytes": 90734,
+      "sha256": "323016e333fc62ad5cbde17aba045f0f4ec6927f19beda9eb5346797ab58e522"
+    },
+    {
+      "name": "eclipse.jpg",
+      "bytes": 40871,
+      "sha256": "1ad9b516d6b886e076e2015426989121c8e0df257c8af7bd2c07e72f8d8cbbc2"
+    },
+    {
+      "name": "fastfood_menu.jpg",
+      "bytes": 633395,
+      "sha256": "658e834560635d3c85bd933947f2707bcb71b29f4cfd774fea43efa454f1a682"
+    },
+    {
+      "name": "handwritten_notes.jpg",
+      "bytes": 132934,
+      "sha256": "08cef981592fb283c2f65a9505567861ffd02aa47f1a1c786cc02e2df4884506"
+    },
+    {
+      "name": "hours.jpg",
+      "bytes": 214444,
+      "sha256": "c03e196f50f2989395079ece04b90f3652ec7b4338fcc09ad3d23b7c57dd545f"
+    },
+    {
+      "name": "labyrinth.png",
+      "bytes": 19790,
+      "sha256": "737b33b77005591059e89a171bf89968db881bcea32d3adf467086be9a348dfe"
+    },
+    {
+      "name": "lake.jpg",
+      "bytes": 109997,
+      "sha256": "bddde1004cc63471f6d04c24b5e2989bbd2244ea09d3194e4f453ef8b5741226"
+    },
+    {
+      "name": "math_problem.jpg",
+      "bytes": 51500,
+      "sha256": "27f0bfdded00e3d365079f0b42d0c0415a0dcb0c283bc85fd7906931560f0b93"
+    },
+    {
+      "name": "minard.png",
+      "bytes": 687027,
+      "sha256": "8d48041171daa9d9a29bb97a7c69855f863b286d55f752779fd2bf3c25b41da6"
+    },
+    {
+      "name": "moon.png",
+      "bytes": 97288,
+      "sha256": "7fc00f4e6cfd8091e75d2f5759938e8a65eee5ed5faee39402d8d9d4c95e0eb6"
+    },
+    {
+      "name": "notes_table.png",
+      "bytes": 220051,
+      "sha256": "2d394cb78cdc75e4acc78ea06cde22a33ec731d6c27efa63dc8a4b69de13cebb"
+    },
+    {
+      "name": "nutrition.png",
+      "bytes": 91950,
+      "sha256": "64b7cad513d053a5d904137e27c7aec4946d316232b544276e7dd5a08bc64456"
+    },
+    {
+      "name": "oculus.png",
+      "bytes": 859289,
+      "sha256": "7286fc7abf50cf66f555bb20092dd316c1501a289fc20d0dfbd0ac0936260eef"
+    },
+    {
+      "name": "pattern_puzzle.png",
+      "bytes": 51646,
+      "sha256": "0093967d44e54f9c23342bb881af07e6a18c4bd90f7f99464ed0fc068aeb4eca"
+    },
+    {
+      "name": "pisa.jpg",
+      "bytes": 707981,
+      "sha256": "3e4fbb65a3a214f0352c3f1ecbd10fe1f201587eff28d9fea5f83406e2969931"
+    },
+    {
+      "name": "receipt.png",
+      "bytes": 78256,
+      "sha256": "919ca1f9de1770721cd5db2c535719a0377c11053f97328ba1da6f2600b24ea1"
+    },
+    {
+      "name": "red_straw.png",
+      "bytes": 194434,
+      "sha256": "edbfd3f97a21e330e44f51dd1d4b1ef1ab9cc13b9bbbc7abee1c718ae60dfc2a"
+    },
+    {
+      "name": "sales_chart.png",
+      "bytes": 50224,
+      "sha256": "bd1212fb0f9dae2f0c938d36ffb1960efd3264383d947da0c0c2c2d55213c21a"
+    },
+    {
+      "name": "skyline.jpg",
+      "bytes": 8366854,
+      "sha256": "b9edaa04857c231e7083772a654e0c5f26c82201d3c533ad004d289fdde3a3a6"
+    },
+    {
+      "name": "tetrahedron.png",
+      "bytes": 19615,
+      "sha256": "90717bb8a059dd84258aca789a70cdb27002ae1a8dfbabcd9eeafe7702878ec3"
+    }
+  ]
+}

@@ -38,10 +38,11 @@
 >
 > 这样只会拉 `ios-omni` 分支的单 commit（约几十 MB），不会拉整个 llama.cpp-omni fork 的全 history。需要 push 到 `tc-mb/llama.cpp-omni:ios-omni` 的开发者可在 submodule 里执行 `git fetch --unshallow` 取消浅 clone。
 
-README 分为两大部分：
+README 分为三大部分：
 
 * **第一部分 — 平台安装与构建**：iOS / Android / HarmonyOS 三端如何编译运行。
 * **第二部分 — GGUF 模型文件**：支持的模型权重下载方式，以及对应的最小端侧硬件要求。
+* **第三部分 — 批量基准测试**：怎么用 App 界面或命令行跑批量测试、数据集怎么管、结果怎么读。
 
 ---
 
@@ -296,3 +297,27 @@ VoxCPM2 支持 30+ 种语言和 9 种中国方言。可直接从文本生成语�
 * ModelScope: [https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
 
 下载后将两个 `.gguf` 文件放入 App 的 **Documents** 目录（iOS），或放入 `/models/{model_id}/` 目录（Android / HarmonyOS）。也可以在 App 内的 **模型管理** 页面直接下载。下载完成后选择 VoxCPM2 模型，App 将自动切换至语音合成界面。
+
+---
+
+## 第三部分　批量基准测试
+
+iOS App 内置批量基准测试（Batch Benchmark）：**固定数据集 × 固定参数 × 多轮重复**，
+逐条记录 prefill / decode 速度、TTFT、TPOT、CPU/GPU 计量与热状态。
+
+数据集（`vision_mix_50` 识图/描述/短答 50 条、`mlperf_llm` 纯文本 133 条）**随 App 一起分发**，
+启动时自动铺到 `Documents/benchmark/<track>/`，装完即可直接跑，无需手动传输。
+
+两种跑法：
+
+* **App 界面**：首页右下角柱状图按钮 →「批量基准测试」→ 拖动滑条选数据集条数 → 开始跑批。
+* **命令行**：
+
+  ```bash
+  xcrun devicectl device process launch --device <UDID> --terminate-existing \
+      <你的 App Bundle ID> -- -bench -benchReps 1 -benchMaxTokens 512 -benchStay
+  ```
+
+完整的参数表、日志标记、数据集格式、结果字段与常见坑见
+**[docs/BENCHMARK_zh.md](docs/BENCHMARK_zh.md)**（另有 [英文版](docs/BENCHMARK.md)）。
+整机功率测量（A/B 档对照）见 **[scripts/pwrbench/README.md](scripts/pwrbench/README.md)**。

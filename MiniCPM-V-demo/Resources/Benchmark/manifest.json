@@ -1,0 +1,67 @@
+{
+  "created": "2026-10-20",
+  "tracks": {
+    "vision_mix_50": {
+      "cases": 50,
+      "reviewed_cases": 25,
+      "self_cases": 25,
+      "images": 30,
+      "image_bytes": 18568663,
+      "files": [
+        "cases.jsonl",
+        "labels.jsonl",
+        "README.md",
+        "manifest.json",
+        "30 images (flat)"
+      ],
+      "cases_sha256": "94c1e9c29a4b74a25f0a73d7380744a7e2e47e7e04edd849c2b76626612bf9d9",
+      "labels_sha256": "f360ea6ab893b1651e95f6d3ce12586779f0746e84543c25d9570ce3ae03d862",
+      "categories": {
+        "ocr_math": 12,
+        "recognition": 8,
+        "science_qa": 3,
+        "ocr_extraction": 2,
+        "ocr_table": 2,
+        "reasoning": 2,
+        "math": 2,
+        "chart_reasoning": 1,
+        "description": 7,
+        "ocr_structure": 1,
+        "ocr_json": 2,
+        "ocr_translation": 1,
+        "logic": 2,
+        "dialogue": 3,
+        "chart_reading": 2
+      },
+      "sources": [
+        "showcase_1b (7 reviewed)",
+        "showcase_cases (12 reviewed)",
+        "showcase_doc 4.6 section (6 reviewed)",
+        "self-supplied images"
+      ],
+      "license": "Reviewed prompts/answers derive from project showcase docs; images include public FDA / Wikimedia / NASA material and project-supplied screenshots. Verify licensing before redistributing any image."
+    },
+    "mlperf_llm": {
+      "cases": 133,
+      "mmlu": 100,
+      "ifeval": 33,
+      "files": [
+        "cases.jsonl",
+        "cases_short.jsonl",
+        "cases_with_warmup.jsonl",
+        "labels.jsonl",
+        "warmup.png",
+        "README.md"
+      ],
+      "cases_sha256": "78b6e95ac12a44bfab4c226dfe035649fafb91cebf341587376f7c7170944692",
+      "labels_sha256": "f7b29c73e46aa3f8f8605d99f632ad299425bfae8fc7ffd46acb33a979f2bcdd",
+      "sources": [
+        "https://github.com/mlcommons/mobile_open",
+        "https://github.com/mlcommons/mobile_app_open",
+        "https://mobile.mlcommons-storage.org/app-resources/datasets/v6_0/tinymmlu.tfrecord",
+        "https://mobile.mlcommons-storage.org/app-resources/datasets/v6_0/tiny33_ifeval.tfrecord"
+      ],
+      "license": "MLPerf repos Apache-2.0; Tiny-MMLU derives from MMLU (MIT); IFEval from google-research (Apache-2.0)"
+    }
+  }
+}

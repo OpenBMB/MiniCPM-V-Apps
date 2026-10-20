@@ -123,8 +123,13 @@ import llama
     ///     v46 模型本身 max_position_embeddings ≥ 32K，远高于 8192；
     ///     KV 多占约 270 MB，iPhone 14 Pro 及以上完全 hold 得住。
     ///   - nThreads: 线程数，默认 4
-    ///   - temperature: 温度参数，默认 0.7（>0 走纯温度采样）。0 为贪心（结果可控），
-    ///     可用 `MB_TEMP=0` 启动参数覆盖；top_k / top_p 由 MBMtmd.mm 禁用。
+    ///   - temperature: 温度参数，**默认 0.0 = 贪心**。
+    ///     0 时采样器走 `llama_sampler_init_greedy()`，结果完全可复现 ——
+    ///     这是做基准测试的前提（MLPerf `mobile_inference_rules.adoc:104-117`：
+    ///     采样随机性属于不允许的非确定性）。
+    ///     >0 才走温度采样，此时 top_k / top_p 由 MBMtmd.mm 禁用。
+    ///     ⚠️ 不再支持 `MB_TEMP` 环境变量覆盖：那个口子会让「从桌面点图标」
+    ///     和「带参启动」两种方式的采样方式不同，同一次实验前后半段就不一致了。
     ///   - useGPU: 是否使用 GPU，默认 false
     ///   - mmprojUseGPU: 多模态投影是否使用 GPU，默认 false
     ///   - warmup: 是否预热，默认 true
@@ -137,7 +142,7 @@ import llama
         nPredict: Int = 100,
         nCtx: Int = 4096,
         nThreads: Int = 4,
-        temperature: Float = 0.7,
+        temperature: Float = 0.0,
         useGPU: Bool = true,
         mmprojUseGPU: Bool = true,
         warmup: Bool = true,

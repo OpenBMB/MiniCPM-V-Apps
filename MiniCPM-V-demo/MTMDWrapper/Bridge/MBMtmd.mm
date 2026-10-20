@@ -16,6 +16,7 @@
 // 直接用 C API 查「本进程还能分配多少」，用来给 ubatch 封顶 —— 这样不必依赖
 // Swift 层的 MBDeviceMemoryProbe（桥接层不该反向依赖 Swift）。
 #include <os/proc.h>
+#include <sys/resource.h>
 
 // Public llama.cpp headers exposed via llama.framework's modulemap.
 #include <llama/llama.h>
@@ -441,6 +442,32 @@ struct mb_mtmd_context {
     int32_t             perf_image_tokens = 0;
     double              perf_image_ms = 0;
 
+    // ── decode 循环分段计时（排查「bench 比日常对话慢」用，只在 EOG 时打一行）──
+    // dbg_gap_ms 是「上一次 loop 结束 → 本次 loop 开始」的间隔，涵盖 Swift 侧的
+    // Task.sleep(10ms) 让出、主线程调度、UI 刷新等**不在引擎内**的时间。
+    double              dbg_sample_ms = 0;      // llama_sampler_sample
+    double              dbg_llama_ms = 0;       // llama_decode（含 MoE 读盘等待）
+    double              dbg_gap_ms = 0;         // 引擎外的间隔
+    double              dbg_last_end_ms = 0;
+    int32_t             dbg_loops = 0;
+    // 真实闪存读字节（rusage ri_diskio_bytesread）。引擎报的 bytes 是
+    // 「窗口 miss × 专家大小」，**不等于**真的打到 NAND —— 命中页缓存的不算。
+    uint64_t            dbg_disk0 = 0;
+    uint64_t            dbg_disk_bytes = 0;
+    // CPU 周期/指令数（rusage ri_cycles / ri_instructions）。
+    // 用来把「llama_decode 剩下的那段时间」切成 CPU 侧（Metal 编码提交）
+    // 还是 GPU 侧（真在算）：CPU 计数一样但更慢 ⇒ 慢在 GPU。
+    uint64_t            dbg_cycles0 = 0;
+    uint64_t            dbg_instr0 = 0;
+    // 每步 llama_decode 的耗时样本：用来分辨「整体均匀变慢」还是「被抢占的长尾」。
+    std::vector<double> dbg_llama_samples;
+    // 调用方式（第一次 decode 时抓一次）
+    int32_t             dbg_n_ctx = 0;
+    int32_t             dbg_n_ubatch = 0;
+    int32_t             dbg_batch_tokens = 0;
+    int32_t             dbg_moe_k = 0;
+    int32_t             dbg_first_n_past = 0;
+
     ~mb_mtmd_context() {
         // spec 持有 ctx_tgt / ctx_dft 的裸指针，必须在两个 context 之前释放。
         if (spec) {
@@ -473,10 +500,15 @@ static void mb_llama_log(enum ggml_log_level level, const char * text, void * /*
                 g_last_llama_error.pop_back();
             }
         }
-        // 引擎的 MoE 诊断（`[moe-ssd] ...`）只走 stderr，而 iOS 上 app 进程的 stderr
-        // 既进不了 unified log、也进不了沙盒文件 —— 真机上等于看不到。这里把这一族
-        // 单独镜像进 mb_run_log.txt，其余 llama 日志不落盘（否则会被 lv4 的噪声淹没）。
-        if (strstr(text, "[moe-ssd]")) {
+        // 引擎的 MoE 诊断（`[moe-ssd] ...`、`[fw] ...`）只走 stderr，而 iOS 上
+        // app 进程的 stderr 既进不了 unified log、也进不了沙盒文件 —— 真机上等于
+        // 看不到。这里把这两族单独镜像进 mb_run_log.txt，其余 llama 日志不落盘
+        // （否则会被 lv4 的噪声淹没）。
+        //
+        // `[fw]` 是 `LLAMA_FW_PROBE=1` 时每次前向往 stderr 打的一行 I/O 计数
+        // （miss / mib / uniq），是批量基准测试里「每帧实际从 SSD 读了多少」的
+        // 唯一数据源 —— 少镜像这一族，跑完只有耗时、没有 I/O 量，无法解释快慢。
+        if (strstr(text, "[moe-ssd]") || strstr(text, "[fw]")) {
             mb_log_raw_line(text);
         }
     }
@@ -942,6 +974,12 @@ static void perf_begin_turn_if_needed(mb_mtmd_context * ctx) {
     ctx->perf_decode_tokens = 0;
     ctx->perf_prefill_ms = 0;
     ctx->perf_decode_ms = 0;
+    // prep_ms 必须在这里清：它是累加量（perf_add_prep 用 +=），而唯一会清它的
+    // mb_mtmd_perf_reset() 没有任何调用方。批量跑几十上百个 case 时它会跨回合
+    // 单调累加 —— 第 1 轮 10 ms、第 2 轮从 10 继续，完全失真。
+    // 别动 perf_image_* / moe_k_*：前者是 snapshot 里清掉的 one-shot（"One-shot,
+    // same as the eager embedding it describes"），后者是模型加载时定下的 K 常量。
+    ctx->perf_prep_ms = 0;
     ctx->perf_turn_open = true;
 }
 
@@ -1468,7 +1506,7 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.n_ctx                 = 4096;
     p.n_ubatch              = 0;       // 0 = pick MB_DEFAULT_N_UBATCH below
     p.n_threads             = 4;
-    p.temperature           = 0.7f;     // 0 = 贪心（可用 MB_TEMP=0 覆盖）
+    p.temperature           = 0.0f;     // 0 = 贪心，可复现（基准测试默认）
     p.use_gpu               = true;
     p.mmproj_use_gpu        = true;
     p.warmup                = true;
@@ -1676,6 +1714,30 @@ static void mb_toklog(const char * path, llama_token id) {
         return;
     }
     fprintf(stderr, "[TOKLOG] path=%s idx=%lld id=%d\n", path, idx++, (int) id);
+}
+
+// 进程级真实闪存读字节（含 mmap 页调入之外的所有 readsyscall 计费）。
+// 用来区分「引擎说读了 77 MiB/token」和「真的打到 NAND 多少」。
+// iOS SDK 里没有公开的 libproc.h，只声明用到的这一个符号。
+extern "C" int proc_pid_rusage(int pid, int flavor, rusage_info_t * buffer);
+
+static void mb_dbg_rusage(uint64_t * disk, uint64_t * cycles, uint64_t * instr) {
+    struct rusage_info_v4 ru;
+    if (proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)&ru) != 0) {
+        if (disk) *disk = 0;
+        if (cycles) *cycles = 0;
+        if (instr) *instr = 0;
+        return;
+    }
+    if (disk)   *disk   = ru.ri_diskio_bytesread;
+    if (cycles) *cycles = ru.ri_cycles;
+    if (instr)  *instr  = ru.ri_instructions;
+}
+
+static uint64_t mb_dbg_diskio_bytes(void) {
+    uint64_t d = 0;
+    mb_dbg_rusage(&d, nullptr, nullptr);
+    return d;
 }
 
 static mb_mtmd_token spec_drain(mb_mtmd_context * ctx) {
@@ -1971,24 +2033,27 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
             set_error(ctx.get(), "Failed to init sampler chain");
             return nullptr;
         }
-        // 临时覆盖开关（只为和 llama-cli 做对照，不设就是默认 0.5，行为一字不变）。
-        // 用 devicectl device process launch -e '{"MB_TEMP":"0"}' 启动即可贪心复现。
+        // 采样温度**只**由 `params.temperature` 决定（Swift 侧默认 0.0 = 贪心）。
+        //
+        // 这里原本支持 `MB_TEMP` 环境变量覆盖，已删除，原因是它会造成
+        // 「同一次实验前后半段采样方式不同」：
+        //   - `devicectl --environment-variables` 带参启动 → 贪心
+        //   - 从桌面点图标启动 → 环境变量不存在 → 退回 0.7 → 随机采样
+        // 而采样器是在 init 时建的，一条进程内改不回来。结果就是跑批数据整体作废。
+        // 让代码单点决定，就没有这个问题。
         float    temp = params.temperature;
         uint32_t seed = LLAMA_DEFAULT_SEED;
-        if (const char * e = getenv("MB_TEMP")) { temp = (float) atof(e); }
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
 
         if (temp > 0.0f) {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
-            mb_logf("[MBMtmd] sampler: temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
+            mb_logf("[MBMtmd] sampler: temp=%.3f dist seed=%u (MB_SEED=%s)",
                     temp, (unsigned) seed,
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)",
                     getenv("MB_SEED") ? getenv("MB_SEED") : "(unset)");
         } else {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_greedy());
-            mb_logf("[MBMtmd] sampler: greedy (temp=0, MB_TEMP=%s)",
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)");
+            mb_logf("[MBMtmd] sampler: greedy (temp=0)");
         }
     }
 
@@ -2165,28 +2230,28 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
             set_error(ctx.get(), "Failed to init sampler chain");
             return nullptr;
         }
-        // 采样参数。与多模态 init 路径保持一致：可用 MB_TEMP / MB_SEED 环境变量
-        // 覆盖（`devicectl device process launch -e '{"MB_TEMP":"0","MB_SEED":"42"}'`）。
+        // 采样参数。与多模态 init 路径保持一致：温度只由 `params.temperature` 决定
+        // （Swift 侧默认 0.0 = 贪心）。`MB_TEMP` 覆盖口子已删除，理由同多模态路径。
         //
         // 之前这里写死 `dist(LLAMA_DEFAULT_SEED)`，导致**纯文本路径无法复现**：
         // 同一个 prompt 两次运行输出不同，既没法做「开/关投机解码输出是否一致」
         // 这种正确性校验，也没法做可复现的基准。两条路径行为不一致本身就是个坑。
-        float    temp = params.temperature > 0.0f ? params.temperature : 0.6f;
+        //
+        // 注意：这里不能再用 `params.temperature > 0 ? ... : 0.6f` 那种兜底 ——
+        // 那会把「显式要求贪心（0）」误判成「没设温度」，自动变回 0.6 采样。
+        float    temp = params.temperature;
         uint32_t seed = LLAMA_DEFAULT_SEED;
-        if (const char * e = getenv("MB_TEMP")) { temp = (float) atof(e); }
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
         if (temp > 0.0f) {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(0.95f, /*min_keep=*/1));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
-            mb_logf("sampler (text-only): temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
+            mb_logf("sampler (text-only): temp=%.3f dist seed=%u (MB_SEED=%s)",
                     temp, (unsigned) seed,
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)",
                     getenv("MB_SEED") ? getenv("MB_SEED") : "(unset)");
         } else {
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_greedy());
-            mb_logf("sampler (text-only): greedy (MB_TEMP=%s)",
-                    getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)");
+            mb_logf("sampler (text-only): greedy (temp=0)");
         }
     }
 
@@ -2789,6 +2854,30 @@ void mb_mtmd_perf_reset(mb_mtmd_context * ctx) {
 mb_mtmd_perf mb_mtmd_perf_snapshot(mb_mtmd_context * ctx) {
     mb_mtmd_perf p = {};
     if (!ctx) return p;
+
+    // ── 收口：把最后一个 token 的 GPU 尾部算进 decode_ms ──
+    //
+    // Metal 是异步的：`mb_mtmd_loop` 里的 `llama_decode` 提交完就返回，
+    // 最后一次解码的 GPU 时间可能还没落账。这里 sync 一次收口，
+    // 顺带让引擎的 n_eval 也把这一步数进去（否则会少 1 个 token）。
+    //
+    // ⚠️ 两套口径为什么对不上（查过多轮，结论如下，别再重复踩）：
+    //   `llama_perf.t_eval` 是从**提交**量到**下次 synchronize**
+    //   （llama-context.cpp:691），所以两次提交之间的任何空隙都会算进去。
+    //   而 App 生成循环里每输出一个 token 都有 `Task.sleep(10ms)`
+    //   （MTMDWrapper.swift 的 performGeneration）+ 节流刷新，
+    //   于是 t_eval 被系统性抬高，**不是 decode_ms 少算**。
+    //
+    //   证据（M1 iPad，256 token 单条）：
+    //     decode:  app 30860 ms  vs  llama t_eval 33546 ms  → 差 2686 ms = 10.49 ms/token（正好是那 10 ms）
+    //     prefill: app  5104 ms  vs  llama t_p_eval 5126 ms → 差   22 ms（prefill 没有 per-token 让步）
+    //   ⇒ TPOT 用 decode_ms 是对的；t_eval 只适合用来核对「有没有漏算 GPU」。
+    if (ctx->lctx && ctx->perf_decode_tokens > 0) {
+        const double t_sync = now_ms();
+        llama_synchronize(ctx->lctx.get());
+        ctx->perf_decode_ms += std::max(0.0, now_ms() - t_sync);
+    }
+
     p.prefill_tokens = ctx->perf_prefill_tokens;
     p.decode_tokens  = ctx->perf_decode_tokens;
     p.prefill_ms     = ctx->perf_prefill_ms;
@@ -3045,6 +3134,11 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     const double t0 = now_ms();
     perf_begin_turn_if_needed(ctx);
 
+    if (ctx->dbg_last_end_ms > 0) {
+        ctx->dbg_gap_ms += std::max(0.0, t0 - ctx->dbg_last_end_ms);
+    }
+    ctx->dbg_loops += 1;
+
     // ── 段 A：投机缓冲里还有片段（或只剩一个结束标记）就直接吐 ──
     if (!ctx->spec_out.empty() || ctx->spec_end_after) {
         return spec_drain(ctx);
@@ -3059,6 +3153,7 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     // 1) Sample one token from the most recent decode's logits.
     llama_token tok = llama_sampler_sample(ctx->sampler.get(), ctx->lctx.get(), /*idx=*/-1);
     llama_sampler_accept(ctx->sampler.get(), tok);
+    ctx->dbg_sample_ms += std::max(0.0, now_ms() - t0);
 
     const bool is_eog = llama_vocab_is_eog(ctx->vocab, tok);
     mb_toklog("base", tok);
@@ -3073,11 +3168,28 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     batch_add_one(ctx->batch, tok, ctx->n_past, /*seq=*/0);
     ctx->n_past++;
     apply_moe_k(ctx, ctx->moe_k_decode > 0 ? ctx->moe_k_decode : MB_MOE_K_DECODE);
-    if (llama_decode(ctx->lctx.get(), ctx->batch) != 0) {
-        ctx->perf_decode_ms += std::max(0.0, now_ms() - t0);
-        set_error(ctx, "loop: llama_decode failed");
-        result.is_end = true;
-        return result;
+    {
+        const double t_dec0 = now_ms();
+        const int rc = llama_decode(ctx->lctx.get(), ctx->batch);
+        const double dt = std::max(0.0, now_ms() - t_dec0);
+        ctx->dbg_llama_ms += dt;
+        ctx->dbg_llama_samples.push_back(dt);
+        if (ctx->dbg_loops <= 1) {
+            ctx->dbg_n_ctx = llama_n_ctx(ctx->lctx.get());
+            ctx->dbg_n_ubatch = llama_n_ubatch(ctx->lctx.get());
+            ctx->dbg_batch_tokens = ctx->batch.n_tokens;
+            ctx->dbg_moe_k = ctx->moe_k_decode;
+            ctx->dbg_first_n_past = ctx->n_past;
+            ctx->dbg_disk0 = mb_dbg_diskio_bytes();
+            mb_dbg_rusage(nullptr, &ctx->dbg_cycles0, &ctx->dbg_instr0);
+        }
+        if (rc != 0) {
+            ctx->perf_decode_ms += std::max(0.0, now_ms() - t0);
+            ctx->dbg_last_end_ms = now_ms();
+            set_error(ctx, "loop: llama_decode failed");
+            result.is_end = true;
+            return result;
+        }
     }
 
     ctx->perf_decode_tokens += 1;
@@ -3101,6 +3213,57 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     }
 
     if (is_eog) {
+        // 一整代结束，把 decode 循环的时间拆开打一行。
+        // 用来定位「bench 比日常对话慢」到底慢在引擎内还是引擎外。
+        {
+            const double total = ctx->perf_decode_ms;
+            const double other = std::max(0.0, total - ctx->dbg_llama_ms - ctx->dbg_sample_ms);
+            const int n = std::max(1, ctx->dbg_loops);
+            auto & v = ctx->dbg_llama_samples;
+            std::sort(v.begin(), v.end());
+            const double p50 = v.empty() ? 0 : v[v.size() * 50 / 100];
+            const double p90 = v.empty() ? 0 : v[v.size() * 90 / 100];
+            const double p99 = v.empty() ? 0 : v[v.size() * 99 / 100];
+            const double mx  = v.empty() ? 0 : v.back();
+            mb_logf("[MBMtmd] loop split: n=%d | 每步合计 %.2f ms = llama_decode %.2f "
+                    "+ sample %.2f + 其余 %.2f | 步间隔(引擎外) %.2f ms | 端到端 %.2f ms/tok",
+                    ctx->dbg_loops, total / n, ctx->dbg_llama_ms / n,
+                    ctx->dbg_sample_ms / n, other / n, ctx->dbg_gap_ms / n,
+                    (total + ctx->dbg_gap_ms) / n);
+            mb_logf("[MBMtmd] loop split 分布: llama_decode p50=%.2f p90=%.2f p99=%.2f max=%.2f ms"
+                    " | 调用参数 n_ctx=%d n_ubatch=%d batch_tok=%d moe_k=%d n_past0=%d",
+                    p50, p90, p99, mx, ctx->dbg_n_ctx, ctx->dbg_n_ubatch,
+                    ctx->dbg_batch_tokens, ctx->dbg_moe_k, ctx->dbg_first_n_past);
+            {
+                const uint64_t now_disk = mb_dbg_diskio_bytes();
+                const uint64_t d = (ctx->dbg_disk0 && now_disk > ctx->dbg_disk0)
+                                 ? (now_disk - ctx->dbg_disk0) : 0;
+                mb_logf("[MBMtmd] loop split 闪存实读: %.1f MiB 全程 / %.2f MiB per token"
+                        "（引擎口径的另一份计数见 moe-ssd total[decode]）",
+                        d / 1048576.0, d / 1048576.0 / std::max(1, ctx->dbg_loops));
+
+                // CPU 侧成本：和 llama_decode 的耗时并排看，
+                // CPU 计数相同而墙钟更长 ⇒ 慢在 GPU/驱动，不是 App 也不是 CPU 编码。
+                uint64_t cyc = 0, ins = 0;
+                mb_dbg_rusage(nullptr, &cyc, &ins);
+                const int nn = std::max(1, ctx->dbg_loops);
+                const double dcyc = (ctx->dbg_cycles0 && cyc > ctx->dbg_cycles0)
+                                  ? (double) (cyc - ctx->dbg_cycles0) / nn : 0.0;
+                const double dins = (ctx->dbg_instr0 && ins > ctx->dbg_instr0)
+                                  ? (double) (ins - ctx->dbg_instr0) / nn : 0.0;
+                mb_logf("[MBMtmd] loop split CPU: %.1f M cycles/tok, %.1f M instr/tok"
+                        "（读数失败的机型会显示 0）", dcyc / 1e6, dins / 1e6);
+                ctx->dbg_disk0 = 0;
+                ctx->dbg_cycles0 = 0;
+                ctx->dbg_instr0 = 0;
+            }
+            v.clear();
+            ctx->dbg_sample_ms = 0;
+            ctx->dbg_llama_ms = 0;
+            ctx->dbg_gap_ms = 0;
+            ctx->dbg_loops = 0;
+            ctx->dbg_last_end_ms = 0;
+        }
         // Flush any remaining cached bytes on EOG (lossy but ensures we
         // never silently eat trailing output).
         if (!ctx->cached_piece.empty()) {
@@ -3113,6 +3276,7 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
             }
         }
         result.is_end = true;
+        ctx->dbg_last_end_ms = now_ms();
         return result;
     }
 
@@ -3135,5 +3299,6 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     //       for the next byte token to complete the sequence.
 
     result.is_end = false;
+    ctx->dbg_last_end_ms = now_ms();
     return result;
 }

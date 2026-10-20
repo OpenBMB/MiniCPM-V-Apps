@@ -270,6 +270,30 @@ import llama
         return v
     }()
 
+    /// 主页面右侧的「批量基准测试」悬浮入口。
+    ///
+    /// 为什么做成悬浮而不是只留设置页里那一行：实测反馈是**在设置二级页里找不到**。
+    /// 基准测试是这个版本的主功能，不该藏在两级菜单后面。
+    ///
+    /// 位置约束挂在 `inputContainerView.snp.top` 上，所以键盘弹出、
+    /// 输入区上移时它会**自动跟着走**，不需要额外处理键盘通知。
+    lazy var benchmarkEntryButton: UIButton = {
+        let b = UIButton(type: .system)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 26, weight: .semibold)
+        b.setImage(UIImage(systemName: "chart.bar.xaxis", withConfiguration: cfg), for: .normal)
+        b.tintColor = .white
+        b.backgroundColor = UIColor.mb_color(with: "#108DED") ?? .systemBlue
+        // 直径 64 → 圆角取一半，保证是正圆而不是"圆角矩形"
+        b.layer.cornerRadius = 32
+        b.layer.shadowColor = UIColor.black.cgColor
+        b.layer.shadowOpacity = 0.20
+        b.layer.shadowRadius = 10
+        b.layer.shadowOffset = CGSize(width: 0, height: 4)
+        b.accessibilityLabel = L.Settings.rowBenchmark.loc
+        b.addTarget(self, action: #selector(benchmarkEntryTapped), for: .touchUpInside)
+        return b
+    }()
+
     /// 这是个蒙层，输入框进入全屏时，覆盖在顶导上用的
     public lazy var topNavGrayMaskView: UIView = {
         let v = UIView()
@@ -493,6 +517,9 @@ import llama
         updateNavTitle()
     }
 
+    /// `-openBenchmark` 只自动跳一次（从子页面返回时不要再弹）
+    private var didAutoOpenBenchmark = false
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
 
@@ -504,6 +531,31 @@ import llama
             let current = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
             if current != "Voxcpm2Model" {
                 checkMultiModelLoadStatusAndLoadIt()
+            }
+        }
+
+        openBenchmarkIfRequested()
+    }
+
+    /// 调试用：`-openBenchmark` 启动参数会在模型加载完成后自动跳到「批量基准测试」页。
+    ///
+    /// 存在的意义只有一个：**自动化验证界面改动**（`pymobiledevice3` 能截图但点不了屏幕）。
+    /// 不带这个参数时零开销，不进任何产品路径。
+    private func openBenchmarkIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-openBenchmark") else { return }
+        guard !didAutoOpenBenchmark else { return }
+        didAutoOpenBenchmark = true
+
+        var tries = 0
+        Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
+            guard let self = self else { timer.invalidate(); return }
+            tries += 1
+            if self.mtmdWrapperExample != nil {
+                timer.invalidate()
+                self.benchmarkEntryTapped()
+            } else if tries > 120 {
+                timer.invalidate()
+                print("[UI] -openBenchmark 等待模型超时")
             }
         }
     }
@@ -570,7 +622,8 @@ import llama
         
         // 创建
         setupFloatingActionView()
-        
+        setupBenchmarkEntry()
+
         #if DEBUG
         /*
         let log = MBLLMDB.sharedInstance().loadAllMessages()
@@ -970,6 +1023,19 @@ import llama
         floatingActionView.onTap = { [weak self] value in
             // 通知状态机取消本次输出
             self?.mtmdWrapperExample?.stopGeneration()
+        }
+    }
+
+    /// 主页右侧的批量基准测试悬浮入口。
+    ///
+    /// 贴在输入区上方、页面右侧，不占用对话区；与居中的「暂停/继续」按钮
+    /// 分处左右两端，不会互相遮挡（iPhone 上也留得下）。
+    func setupBenchmarkEntry() {
+        view.addSubview(benchmarkEntryButton)
+        benchmarkEntryButton.snp.makeConstraints { make in
+            make.right.equalTo(self.view.snp.right).offset(-18)
+            make.bottom.equalTo(self.inputContainerView.snp.top).offset(-64)
+            make.width.height.equalTo(64)
         }
     }
     
