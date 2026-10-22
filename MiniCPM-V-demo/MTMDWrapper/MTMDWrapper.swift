@@ -563,6 +563,17 @@ public class MTMDWrapper: ObservableObject {
         print("MTMDWrapper: 上下文已重置")
     }
 
+    /// 按上次 init 的参数整体重载模型（reset + initialize）。
+    ///
+    /// 用途：批量测试里「有图 case ↔ 无图 case」切换时。文本 case 会把自适应 ubatch 降到 128，
+    /// 之后再来图片 case 要抬回 1024，`recreate_lctx` 期间新旧 context 并存（实测 Metal 瞬时
+    /// +869 MiB）就会触发 jetsam；整体重载让 ub 在 init 时一次到位，不存在这个过渡态。
+    public func reloadModel() async throws {
+        guard let saved = params else { throw MTMDError.contextNotInitialized }
+        await reset()
+        try await initialize(with: saved)
+    }
+
     /// 仅清 KV cache + n_past=0，保留 context / sampler 不重建。
     /// 用途：开一段独立 prefill turn（视频抽帧、场景切换），对齐 Python 端每次
     /// chat() 都从干净 KV 开始。避免长对话 + 抽帧顶穿 n_ctx —— 混合 SSM 模型

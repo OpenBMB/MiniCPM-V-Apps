@@ -124,6 +124,9 @@ public final class BenchmarkRunner: ObservableObject {
 
     private var isCancelled = false
 
+    /// 上一条 case 是否带图。用于在「有图 ↔ 无图」切换时重载模型，见 `runOne` 里的说明。
+    private var lastCaseHadImage: Bool?
+
     // MARK: - 主入口
 
     /// 串行跑完整批。
@@ -141,6 +144,9 @@ public final class BenchmarkRunner: ObservableObject {
             fail("模型未加载完成")
             return
         }
+
+        // 每次开跑都从「没有上一条」开始，避免沿用上一次运行的图片状态而多触发一次重载。
+        lastCaseHadImage = nil
 
         // 采样随机性是 MLPerf 明文不允许的非确定性之一
         // （`mobile_inference_rules.adoc:104-117` 只认浮点序 / 输入遍历 / 舍入）。
@@ -317,6 +323,21 @@ public final class BenchmarkRunner: ObservableObject {
                   orderInPass: Int,
                   runId: String,
                         example: MTMDWrapperExample) async -> BenchmarkSample {
+
+        // 有图 ↔ 无图切换时整体重载模型。
+        //
+        // 文本 case 会把自适应 ubatch 降到 128；之后再来图片 case 要抬回 1024，重建 lctx 期间
+        // 新旧 context 并存（实测 Metal 瞬时 +869 MiB），本机 7.45 GB 撑不住直接 jetsam。
+        // 重载让 ub 在 init 时一次到位。放在计时之前，重载耗时不进单条 case 的墙钟。
+        let caseHasImage = c.turns.contains { $0.image != nil }
+        if let prev = lastCaseHadImage, prev != caseHasImage {
+            let ok = await example.reloadForCaseSwitch()
+            if !ok { NSLog("%@", "[BENCH] 切换重载失败，继续按当前 context 执行") }
+            // reset + initialize 会把这两项复位，重载后必须重新设置。
+            example.mtmdWrapper.decodeTokenLimit = config.decodeTokenLimit
+            example.mtmdWrapper.stopAtEOG = config.stopAtEOG
+        }
+        lastCaseHadImage = caseHasImage
 
         let thermalBefore = Self.thermalString()
         let batteryBefore = Self.batteryLevel()

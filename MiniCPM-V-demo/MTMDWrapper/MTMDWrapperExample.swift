@@ -453,6 +453,20 @@ public class MTMDWrapperExample: ObservableObject {
         print("已重置")
     }
 
+    /// 批量测试用：有图 / 无图切换时整体重载，避免 ubatch 就地放大带来的内存峰值。
+    @discardableResult
+    public func reloadForCaseSwitch() async -> Bool {
+        do {
+            try await mtmdWrapper.reloadModel()
+            outputText = ""
+            return true
+        } catch {
+            errorMessage = String(describing: error)
+            print("MTMDWrapperExample: 重载失败 \(error)")
+            return false
+        }
+    }
+
     /// Apply model version to the C bridge based on `currentUsingModelType`.
     /// Must be called after successful init.
     public func applyModelVersion() {

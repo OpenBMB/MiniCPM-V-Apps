@@ -225,6 +225,13 @@ The assistant turn needs no runtime change either: `assistant_hist` already emit
 `<|im_start|>assistant\n<think>\n\n</think>\n\n{text}<|im_end|>`, which is exactly what a pre-rendered
 `tool_calls` payload builds on.
 
+**Mixing image and text cases:** when consecutive cases differ in "has image", the runner reloads the model
+before the next case (`MTMDWrapper.reloadModel()`, excluded from the per-case wall clock). Text cases shrink
+the adaptive ubatch to 128; going back to an image case would otherwise grow it in place to 1024, and during
+that rebuild the old and new contexts coexist (+869 MiB of Metal on device) — enough to trigger jetsam.
+The reload lets the ubatch be right at init. Cost: one model load per switch, so a mixed track runs slower
+than a single-kind one.
+
 **Timing convention (B — whole conversation):** `prefill_ms` / `prefill_tokens` accumulate over *all*
 turns, while `decode_ms` covers only the final answer. This matches how MLPerf treats few-shot context:
 it is part of the prompt and is fully counted as prefill. Consequences you must keep in mind:
