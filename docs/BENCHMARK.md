@@ -138,7 +138,7 @@ xcrun devicectl device copy from --device $UDID \
 |---|---:|---|---|
 | **`vision_mix_50`** (default) | 50 | Image recognition / description / short-answer mix (25 reviewed real cases + 25 synthetic short-answer cases) | 3001–3050 |
 | `mlperf_llm` | 133 | MLPerf Mobile v6.0: Tiny-MMLU (100) + Tiny-IFEval-33 (33), **text only** | 1001–1100 / 2001–2033 |
-| `openai_messages_samples` | 2 | Message-style samples: 9001 (single-turn image+text), 9002 (**multi-turn**: system → user+image → assistant → user). 9003/9004 need tool support and are not included | 9001–9002 |
+| `openai_messages_samples` | 3 | Message-style samples: 9001 (single-turn image+text), 9002 (**multi-turn**: system → user+image → assistant → user), 9003 (**`tools`** + single turn). 9004 (tool round-trip) not included yet | 9001–9003 |
 
 The key ranges do not overlap, so tracks can run in one block (results are distinguished by `key`).
 
@@ -192,6 +192,23 @@ A case may carry `messages` instead of `image`/`text` (both forms live in the sa
   that turn's `prefill_text`, so it has to be the same turn;
 - `role: "tool"` is **not supported** (no tool branch in the ChatML template); such a case fails with an
   explicit error rather than producing a meaningless number.
+
+A case may also declare `tools` (OpenAI-style array). It is rendered into a leading `system` block exactly
+as the checkpoint's ChatML template does — `# Tools` … `<tools>` … `</tools>` … `<IMPORTANT>` — and must
+be the first thing prefilled:
+
+```json
+{"key": 9003,
+ "tools": [{"type": "function", "function": {"name": "get_weather", "description": "…", "parameters": {…}}}],
+ "messages": [{"role": "user", "text": "帮我查一下北京现在的天气。"}]}
+```
+
+- the tool array is serialized with sorted keys and no extra whitespace — the style is fixed, because a
+  different spelling changes the token count and makes runs incomparable;
+- `tools` combined with an explicit `system` message is not supported yet (the template merges the two;
+  no current case needs it);
+- tool output is **not** parsed or validated: the harness measures the token sequence, not whether the
+  emitted function name was correct.
 
 **Timing convention (B — whole conversation):** `prefill_ms` / `prefill_tokens` accumulate over *all*
 turns, while `decode_ms` covers only the final answer. This matches how MLPerf treats few-shot context:

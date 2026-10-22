@@ -21,9 +21,9 @@ import Foundation
 public enum BenchmarkSampleDataset {
 
     /// 安装戳记的版本号。**改数据集内容时把它 +1**，已装过的设备才会重铺。
-    // v4：vision_mix_50 的 prompt 改写过（去掉“只回答…”约束），文件数与 v3 相同，
-    // 所以必须靠版本号而不是文件数来触发重铺。
-    public static let installVersion = "v4"
+    // v5：openai_messages_samples 增加 9003（文件数不变，只能靠版本号触发重铺）。
+    // v4：vision_mix_50 的 prompt 改写过（去掉“只回答…”约束），文件数与 v3 相同。
+    public static let installVersion = "v5"
 
     /// 默认 track 的 case 条数（UI 文案用；实际以 cases.jsonl 为准）。
     public static let builtinCaseCount = 50

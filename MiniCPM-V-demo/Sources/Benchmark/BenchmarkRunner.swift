@@ -346,6 +346,17 @@ public final class BenchmarkRunner: ObservableObject {
         // 分阶段能量：无图时它就是「KV 清空后」的基线
         var energyAfterImage = BenchmarkEnergyProbe.take()
 
+        // 工具定义必须作为第一个 system 段写入（n_past == 0），模型才知道有哪些函数可调。
+        // turnWallMs 下标与消息一一对应，所以这一段不占位（它的耗时落在 prefill 的 prep 里）。
+        if let toolsJSON = c.toolsJSON, errorMsg == nil {
+            if turns.first?.role == .system {
+                errorMsg = "tools 与独立 system 消息同时出现暂不支持（case \(c.key)）"
+            } else {
+                let ok = await example.addTextInBackground(toolsJSON, role: "tools")
+                if !ok { errorMsg = "tools 段 prefill 失败" }
+            }
+        }
+
         for (index, turn) in turns.enumerated() where errorMsg == nil {
             // 预热单独计时：它不只是"重建 ubatch"，还会真从 SSD 读专家做预热。
             // 首轮实测 wall-clock 有约 3.4 s/条对不上账，怀疑主要就在这里 ——

@@ -2678,7 +2678,44 @@ int mb_mtmd_prefill_text(mb_mtmd_context * ctx, const char * text_in, const char
         }
     } else if (role == "assistant_hist") {
         // 历史 assistant 轮：assistant 分支只写正文（头由前一轮 user 写入），这里要自己补。
-        formatted += "<|im_start|>assistant\n" + text + "<|im_end|>\n";
+        // 空 <think></think> 块不能省：checkpoint 的 jinja 模板对没有 reasoning_content 的
+        // assistant 消息固定写成 "<|im_start|>assistant\n<think>\n\n</think>\n\n{content}"，
+        // 省掉就和训练时的格式不一致。
+        formatted += "<|im_start|>assistant\n<think>\n\n</think>\n\n" + text + "<|im_end|>\n";
+    } else if (role == "tools") {
+        // 工具定义段：text 是 tools 的 JSON 数组原文（调用方负责序列化）。
+        // 这段必须位于所有消息之前（n_past == 0），格式取自 checkpoint 自带的 ChatML 模板：
+        // 有 tools 时用一个独立的 system 段承载，而不是塞进 user 轮。
+        formatted += "<|im_start|>system\n"
+                     "# Tools\n\n"
+                     "You have access to the following functions:\n\n"
+                     "<tools>\n";
+        formatted += text;
+        formatted += "\n</tools>\n\n"
+                     "If you choose to call a function ONLY reply in the following format with NO suffix:\n\n"
+                     "<tool_call>\n"
+                     "<function=example_function_name>\n"
+                     "<parameter=example_parameter_1>\n"
+                     "value_1\n"
+                     "</parameter>\n"
+                     "<parameter=example_parameter_2>\n"
+                     "This is the value for the second parameter\n"
+                     "that can span\n"
+                     "multiple lines\n"
+                     "</parameter>\n"
+                     "</function>\n"
+                     "</tool_call>\n\n"
+                     "<IMPORTANT>\n"
+                     "Reminder:\n"
+                     "- Function calls MUST follow the specified format: an inner <function=...></function> "
+                     "block must be nested within <tool_call></tool_call> XML tags\n"
+                     "- Required parameters MUST be specified\n"
+                     "- You may provide optional reasoning for your function call in natural language BEFORE "
+                     "the function call, but NOT after\n"
+                     "- If there is no function call available, answer the question like normal with your "
+                     "current knowledge and do not tell the user about function calls\n"
+                     "</IMPORTANT>"
+                     "<|im_end|>\n";
     } else if (role == "assistant") {
         formatted += text + "<|im_end|>\n";
     } else if (role == "system") {

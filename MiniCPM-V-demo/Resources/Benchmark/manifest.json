@@ -64,18 +64,18 @@
       "license": "MLPerf repos Apache-2.0; Tiny-MMLU derives from MMLU (MIT); IFEval from google-research (Apache-2.0)"
     },
     "openai_messages_samples": {
-      "cases": 2,
+      "cases": 3,
       "files": [
         "cases.jsonl",
         "cat.png",
         "cafe.jpg"
       ],
-      "cases_sha256": "b5da3d662f8c78b49349cb1d1577709ef97cfc79e7ebb4bb287f512283714d45",
+      "cases_sha256": "7a23efe3e5d23c4f7d4e06844b45eb4b475be3b3ca5a3f92f1e4ad3e469903bb",
       "sources": [
         "openai_messages_samples/raw_cases.jsonl (9001, downgraded to single-turn)"
       ],
       "license": "Sample image supplied with the dataset; verify licensing before redistributing.",
-      "note": "9001 = single turn (image+text); 9002 = multi-turn (system/user+image/assistant/user). 9003/9004 need tool support, not included."
+      "note": "9001 single-turn image+text; 9002 multi-turn; 9003 tools + single turn. 9004 (tool round-trip) pending."
     }
   }
 }

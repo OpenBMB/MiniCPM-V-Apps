@@ -18,6 +18,86 @@
 
 import Foundation
 
+/// 通用 JSON 值，用于承载 `cases.jsonl` 里的 `tools` 字段。
+///
+/// 只做「原样搬运 + 稳定序列化」：C 层需要的是一段 JSON 原文，塞进 `# Tools` 段，
+/// 所以这里不解释任何语义。用 enum 而不是 `[String: Any]`，是因为 `Any` 不能 Codable，
+/// 而数据集是逐行解码的。
+public enum BenchmarkJSON: Codable, Equatable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+    case array([BenchmarkJSON])
+    case object([String: BenchmarkJSON])
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() {
+            self = .null
+        } else if let v = try? c.decode(Bool.self) {
+            self = .bool(v)
+        } else if let v = try? c.decode(Double.self) {
+            self = .number(v)
+        } else if let v = try? c.decode(String.self) {
+            self = .string(v)
+        } else if let v = try? c.decode([BenchmarkJSON].self) {
+            self = .array(v)
+        } else {
+            self = .object(try c.decode([String: BenchmarkJSON].self))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        }
+    }
+
+    /// 稳定序列化：对象键按字典序、无多余空格、非 ASCII 原样输出。
+    ///
+    /// 风格必须固定 —— 同样的工具定义换个写法，token 数就变了，跨版本的数字就不可比。
+    var jsonText: String {
+        switch self {
+        case .string(let s):
+            var out = "\""
+            for ch in s.unicodeScalars {
+                switch ch {
+                case "\"": out += "\\\""
+                case "\\": out += "\\\\"
+                case "\n": out += "\\n"
+                case "\r": out += "\\r"
+                case "\t": out += "\\t"
+                default:
+                    if ch.value < 0x20 {
+                        out += String(format: "\\u%04x", ch.value)
+                    } else {
+                        out.unicodeScalars.append(ch)
+                    }
+                }
+            }
+            return out + "\""
+        case .number(let v):
+            // 整数值不输出 ".0"：工具定义里的数字基本都是整数，带 ".0" 会和常见写法不一致。
+            return v == v.rounded() && abs(v) < 1e15
+                ? String(Int64(v))
+                : String(v)
+        case .bool(let v): return v ? "true" : "false"
+        case .null: return "null"
+        case .array(let v): return "[" + v.map(\.jsonText).joined(separator: ",") + "]"
+        case .object(let v):
+            let body = v.keys.sorted().map { "\"\($0)\":" + v[$0]!.jsonText }.joined(separator: ",")
+            return "{" + body + "}"
+        }
+    }
+}
+
 /// 多轮 case 里的一条消息。
 ///
 /// 只保留批量测试需要的三个字段：`role` / `text` / `image?`，不用 OpenAI 那种
@@ -88,6 +168,11 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
     /// 多轮 case 的消息序列；为空表示按单轮（`image` + `text`）执行。
     public let messages: [BenchmarkMessage]?
 
+    /// 可供模型调用的工具定义（OpenAI `tools` 数组，原样保存）。
+    ///
+    /// 只在批量测试里用：runner 会把它渲染成一个 system 段喂给模型。
+    public let tools: [BenchmarkJSON]?
+
     public var id: Int { key }
 
     /// 按顺序要 prefill 的消息。单轮 case 合成为一条 user 消息，
@@ -97,15 +182,26 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
         return [BenchmarkMessage(role: .user, text: text, image: image)]
     }
 
-    public init(key: Int, image: String?, text: String, messages: [BenchmarkMessage]? = nil) {
+    /// 渲染给 C 层 `role="tools"` 的 JSON 原文；没有工具定义时为 nil。
+    public var toolsJSON: String? {
+        guard let tools, !tools.isEmpty else { return nil }
+        return BenchmarkJSON.array(tools).jsonText
+    }
+
+    public init(key: Int,
+                image: String?,
+                text: String,
+                messages: [BenchmarkMessage]? = nil,
+                tools: [BenchmarkJSON]? = nil) {
         self.key = key
         self.image = image
         self.text = text
         self.messages = messages
+        self.tools = tools
     }
 
     private enum CodingKeys: String, CodingKey {
-        case key, image, text, messages
+        case key, image, text, messages, tools
     }
 
     /// 自定义解码：多轮 case 不写 `text`，所以要给缺省值。
@@ -116,6 +212,7 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
         image = try c.decodeIfPresent(String.self, forKey: .image)
         text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
         messages = try c.decodeIfPresent([BenchmarkMessage].self, forKey: .messages)
+        tools = try c.decodeIfPresent([BenchmarkJSON].self, forKey: .tools)
     }
 }
 
