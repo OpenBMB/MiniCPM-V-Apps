@@ -150,7 +150,8 @@ public class MTMDWrapper: ObservableObject {
     /// 固定 token 数后噪声恒定在 ±1/N，窗口时长自动适配（N=12：慢档约 3.5 s，快档约 1.2 s）。
     private let livePerfTokenWindow = 12
     /// 最近一个窗口算出的 decode 速度（t/s）。只供「实时速度」显示用。
-    private var liveDecodeRate: Double?
+    /// 实时 decode 速率（tok/s）。对外只读：批量测试要用它自己拼日志，便于按界面语言输出。
+    public private(set) var liveDecodeRate: Double?
     
     /// 生成队列
     private let generationQueue = DispatchQueue(label: "com.mtmd.generation", qos: .userInitiated)

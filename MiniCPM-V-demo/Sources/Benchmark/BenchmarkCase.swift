@@ -18,6 +18,45 @@
 
 import Foundation
 
+/// 批量基准测试页的语言（只影响这一页和它产出的日志，不改动 App 其它部分）。
+///
+/// 默认 **英文**：重装后本地偏好为空，按 `.en` 处理 —— 测量结果要给外部看，
+/// 默认语言不应该是中文。切换后界面会整体重建，不用重启。
+public enum BenchmarkLocale: String, CaseIterable, Identifiable {
+    case en
+    case zh
+
+    public var id: String { rawValue }
+
+    /// 切换器上显示的名字（用本语言写，不需要翻译）。
+    public var displayName: String {
+        switch self {
+        case .en: return "EN"
+        case .zh: return "中文"
+        }
+    }
+}
+
+public enum BML {
+
+    private static let defaultsKey = "bench_language"
+
+    /// 当前语言。没存过就用英文。
+    public static var language: BenchmarkLocale {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: defaultsKey),
+                  let v = BenchmarkLocale(rawValue: raw) else { return .en }
+            return v
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey) }
+    }
+
+    /// 取文案：`BML.t("English", "中文")`。
+    public static func t(_ en: String, _ zh: String) -> String {
+        language == .zh ? zh : en
+    }
+}
+
 /// 通用 JSON 值，用于承载 `cases.jsonl` 里的 `tools` 字段。
 ///
 /// 只做「原样搬运 + 稳定序列化」：C 层需要的是一段 JSON 原文，塞进 `# Tools` 段，
@@ -194,10 +233,13 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
     public var displayKind: String {
         if tools?.isEmpty == false {
             let roundTrip = turns.contains { $0.role == .assistant && $0.text.contains("<tool_call>") }
-            return roundTrip ? "工具往返" : "工具调用"
+            return roundTrip ? BML.t("tool round-trip", "工具往返")
+                             : BML.t("tool call", "工具调用")
         }
-        if turns.count > 1 { return "多轮（\(turns.count) 轮）" }
-        return turns.contains { $0.image != nil } ? "单轮图文" : "单轮文本"
+        if turns.count > 1 { return BML.t("multi-turn (\(turns.count))", "多轮（\(turns.count) 轮）") }
+        return turns.contains { $0.image != nil }
+            ? BML.t("single-turn (image+text)", "单轮图文")
+            : BML.t("single-turn (text)", "单轮文本")
     }
 
     public init(key: Int,

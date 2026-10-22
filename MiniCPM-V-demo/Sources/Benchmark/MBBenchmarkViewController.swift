@@ -75,12 +75,14 @@ public final class MBBenchmarkViewController: UIViewController {
     private let resultTextView = UITextView()
     private let scrollView = UIScrollView()
     private let contentView = UIView()
+    /// 语言切换（EN / 中文）。只影响本页与它产出的日志。
+    private let languagePicker = UISegmentedControl(items: BenchmarkLocale.allCases.map(\.displayName))
 
     // MARK: - 生命周期
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        title = "批量基准测试"
+        title = BML.t("Batch Benchmark", "批量基准测试")
         view.backgroundColor = .systemBackground
         setupUI()
         bind()
@@ -95,6 +97,18 @@ public final class MBBenchmarkViewController: UIViewController {
     // MARK: - UI
 
     private func setupUI() {
+        // 这个方法会被「切换语言」重复调用，所以先把上次建的东西全部拆掉；
+        // 否则每次重建都会再追加一遍行与视图，表现就是列表越来越长、文字互相叠住。
+        contentView.subviews.forEach { $0.removeFromSuperview() }
+        contentView.removeFromSuperview()
+        trackCard.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        otherTracksCard.arrangedSubviews.forEach { $0.removeFromSuperview() }
+
+        languagePicker.selectedSegmentIndex =
+            BenchmarkLocale.allCases.firstIndex(of: BML.language) ?? 0
+        languagePicker.addTarget(self, action: #selector(languageChanged), for: .valueChanged)
+        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: languagePicker)
+
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(scrollView)
@@ -124,7 +138,7 @@ public final class MBBenchmarkViewController: UIViewController {
 
         // 折叠头：灰底圆角 + 尾部 chevron（系统原生观感，iOS 18~26 通用）
         var headCfg = UIButton.Configuration.gray()
-        headCfg.title = "数据集"
+        headCfg.title = BML.t("Dataset", "数据集")
         headCfg.image = UIImage(systemName: "chevron.down")
         headCfg.imagePlacement = .trailing
         headCfg.imagePadding = 10
@@ -177,7 +191,7 @@ public final class MBBenchmarkViewController: UIViewController {
 
         // 其它数据集：折叠 + 滑条，默认收起、默认 0 条。
         var otherCfg = UIButton.Configuration.gray()
-        otherCfg.title = "其它数据集"
+        otherCfg.title = BML.t("Other datasets", "其它数据集")
         otherCfg.image = UIImage(systemName: "chevron.down")
         otherCfg.imagePlacement = .trailing
         otherCfg.imagePadding = 10
@@ -248,28 +262,28 @@ public final class MBBenchmarkViewController: UIViewController {
 
         datasetButton.addTarget(self, action: #selector(datasetButtonTapped), for: .touchUpInside)
 
-        startButton.setTitle("执行批量测试", for: .normal)
+        startButton.setTitle(BML.t("Run Batch", "执行批量测试"), for: .normal)
         startButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         startButton.addTarget(self, action: #selector(startRun), for: .touchUpInside)
 
-        cancelButton.setTitle("取消", for: .normal)
+        cancelButton.setTitle(BML.t("Cancel", "取消"), for: .normal)
         cancelButton.addTarget(self, action: #selector(cancelRun), for: .touchUpInside)
         cancelButton.isEnabled = false
 
-        exportButton.setTitle("导出最近一次结果", for: .normal)
+        exportButton.setTitle(BML.t("Export Last Result", "导出最近一次结果"), for: .normal)
         exportButton.addTarget(self, action: #selector(exportResult), for: .touchUpInside)
         exportButton.isEnabled = false
 
         progressView.progress = 0
         progressCountLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
         progressCountLabel.textColor = .secondaryLabel
-        progressCountLabel.text = "未开始"
+        progressCountLabel.text = BML.t("Idle", "未开始")
 
         progressLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular)
         progressLabel.numberOfLines = 0
-        progressLabel.text = "未开始"
+        progressLabel.text = BML.t("Idle", "未开始")
 
-        resultTextView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        resultTextView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
         resultTextView.isEditable = false
         resultTextView.layer.borderWidth = 0.5
         resultTextView.layer.borderColor = UIColor.separator.cgColor
@@ -281,22 +295,28 @@ public final class MBBenchmarkViewController: UIViewController {
             trackCard,
             otherTracksHeader,
             otherTracksCard,
-            makeHint("默认数据集按「单条 case」勾选；其它数据集按条数滑条选择。"
-                + "数据集随 App 分发、启动自动铺好，无需手动传输。"),
-            makeSectionTitle("重复轮数"),
+            makeHint(BML.t("Default dataset: toggle each case; other datasets use a count slider.",
+                "默认数据集按「单条 case」勾选；其它数据集按条数滑条选择。")
+                + BML.t(" Datasets ship with the app and are installed on launch.",
+                    "数据集随 App 分发、启动自动铺好，无需手动传输。")),
+            makeSectionTitle(BML.t("Repetitions", "重复轮数")),
             hstack(repLabel, repStepper),
-            makeHint("跨 case 的方差通常远大于同 case 重复间的方差，所以「多 case × 少重复」" +
-                "比「少 case × 多重复」信息量大。轮数主要用来估可复现性和压低标准误。"),
-            makeSectionTitle("输出 token 上限"),
+            makeHint(BML.t("Variance across cases is usually far larger than between repeats, so \"many cases × few repeats\"",
+                "跨 case 的方差通常远大于同 case 重复间的方差，所以「多 case × 少重复」") +
+                BML.t(" carries more information than \"few cases × many repeats\". Repeats mostly estimate reproducibility.",
+                    "比「少 case × 多重复」信息量大。轮数主要用来估可复现性和压低标准误。")),
+            makeSectionTitle(BML.t("Output token limit", "输出 token 上限")),
             tokenPicker,
-            makeHint("只限上限，撞 EOG 会提前停（不同 case 输出长度可以不同）。"
-                + "设大一些能让需要长回答的 case 跑完。"),
+            makeHint(BML.t("Upper bound only; generation stops early on EOG (output length may differ per case).",
+                "只限上限，撞 EOG 会提前停（不同 case 输出长度可以不同）。")
+                + BML.t(" Raise it so long answers are not cut off.",
+                    "设大一些能让需要长回答的 case 跑完。")),
             tempLabel,
             // 「重铺数据集」按钮暂不展示：低频运维操作，且文案容易让人以为是必做步骤。
             // 逻辑（datasetButtonTapped / reinstallActiveTrack）保留，需要时可放回这里。
             hstack(startButton, cancelButton),
             exportButton,
-            makeSectionTitle("进度与统计"),
+            makeSectionTitle(BML.t("Progress", "进度")),
             progressView,
             progressCountLabel,
             progressLabel,
@@ -347,8 +367,8 @@ public final class MBBenchmarkViewController: UIViewController {
 
     private func updateStepperLabels() {
         refreshTrackControls()
-        repLabel.text = "\(repetitions) 轮"
-        cooldownLabel.text = cooldownSec == 0 ? "不冷却" : "\(cooldownSec) 秒"
+        repLabel.text = "\(repetitions) " + BML.t("rep(s)", "轮")
+        cooldownLabel.text = cooldownSec == 0 ? BML.t("off", "不冷却") : "\(cooldownSec) " + BML.t("s", "秒")
     }
 
     // MARK: - 绑定
@@ -382,24 +402,29 @@ public final class MBBenchmarkViewController: UIViewController {
             .sink { [weak self] done, total in
                 guard let self = self else { return }
                 self.progressView.progress = total > 0 ? Float(done) / Float(total) : 0
-                self.progressCountLabel.text = total > 0 ? "\(done) / \(total) 条" : "未开始"
+                self.progressCountLabel.text = total > 0 ? "\(done) / \(total)" : BML.t("Idle", "未开始")
             }
             .store(in: &cancellables)
 
         runner.$lastResult
             .receive(on: DispatchQueue.main)
             .sink { [weak self] r in
-                guard let self = self, let r = r else { return }
+                guard let self = self, r != nil else { return }
                 self.exportButton.isEnabled = true
-                self.resultTextView.text = BenchmarkReport.text(r)
             }
             .store(in: &cancellables)
 
-        runner.$failureMessage
+        // 输出框改成实时状态：图片预处理 / prefill / decode + 实时速度。
+        // 统计报告不再显示在这里，而是落盘成 report_<uuid>.txt。
+        runner.$liveLog
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] m in
-                guard let self = self, let m = m else { return }
-                self.resultTextView.text = "失败：\(m)"
+            .sink { [weak self] lines in
+                guard let self = self else { return }
+                self.resultTextView.text = lines.joined(separator: "\n")
+                if !lines.isEmpty {
+                    let end = NSRange(location: self.resultTextView.text.count, length: 0)
+                    self.resultTextView.scrollRangeToVisible(end)
+                }
             }
             .store(in: &cancellables)
     }
@@ -414,6 +439,33 @@ public final class MBBenchmarkViewController: UIViewController {
     @objc private func tokenChanged() {
         let i = max(0, tokenPicker.selectedSegmentIndex)
         decodeTokenLimit = Self.tokenChoices[min(i, Self.tokenChoices.count - 1)]
+        updateStepperLabels()
+    }
+
+    /// 切语言：写进偏好后整体重建页面（比逐个刷新文案可靠）。
+    @objc private func languageChanged() {
+        let lang = BenchmarkLocale.allCases[max(0, languagePicker.selectedSegmentIndex)]
+        guard lang != BML.language else { return }
+        BML.language = lang
+        rebuildUI()
+    }
+
+    private func rebuildUI() {
+        scrollView.removeFromSuperview()
+        // 重建前必须清掉旧 target，否则同一个动作会被触发两次。
+        for c in [trackHeader, otherTracksHeader, startButton, cancelButton, exportButton,
+                  datasetButton, repStepper, cooldownStepper, tokenPicker] {
+            c.removeTarget(nil, action: nil, for: .allEvents)
+        }
+        for sl in trackSliders.values { sl.removeTarget(nil, action: nil, for: .allEvents) }
+        for sw in caseSwitches.values { sw.removeTarget(nil, action: nil, for: .allEvents) }
+        trackSliders.removeAll()
+        trackValueLabels.removeAll()
+        caseSwitches.removeAll()
+
+        setupUI()
+        refreshDatasetButtonTitle()
+        refreshTempLabel()
         updateStepperLabels()
     }
 
@@ -474,7 +526,7 @@ public final class MBBenchmarkViewController: UIViewController {
         trackCaseCount = total
 
         var cfg = trackHeader.configuration ?? UIButton.Configuration.gray()
-        cfg.title = total > 0 ? "数据集 · 共 \(total) 条" : "数据集 · 未选择"
+        cfg.title = total > 0 ? BML.t("Dataset · \(total) case(s)", "数据集 · 共 \(total) 条") : BML.t("Dataset · none", "数据集 · 未选择")
         cfg.image = UIImage(systemName: trackCard.isHidden ? "chevron.down" : "chevron.up")
         trackHeader.configuration = cfg
     }
@@ -483,11 +535,13 @@ public final class MBBenchmarkViewController: UIViewController {
     private func trackSummary(_ track: String) -> String {
         switch track {
         case "vision_mix_50":
-            return "1B/35B/4.6 已审核 25 条 + 识图/描述/简单题 25 条"
+            return BML.t("25 reviewed + 25 recognition/description/short-answer cases",
+                "1B/35B/4.6 已审核 25 条 + 识图/描述/简单题 25 条")
         case "mlperf_llm":
-            return "MLPerf Mobile v6.0（Tiny-MMLU 100 + Tiny-IFEval 33），纯文本"
+            return BML.t("MLPerf Mobile v6.0 (Tiny-MMLU 100 + Tiny-IFEval 33), text only",
+                "MLPerf Mobile v6.0（Tiny-MMLU 100 + Tiny-IFEval 33），纯文本")
         default:
-            return "未知 track"
+            return BML.t("unknown track", "未知 track")
         }
     }
 
@@ -505,12 +559,14 @@ public final class MBBenchmarkViewController: UIViewController {
     private func refreshTempLabel() {
         let t = BenchmarkRunner.effectiveTemperature(example: wrapperExample)
         if t == 0 {
-            tempLabel.text = "采样温度 0（贪心）✓ 结果可复现"
+            tempLabel.text = BML.t("Temperature 0 (greedy) ✓ reproducible", "采样温度 0（贪心）✓ 结果可复现")
             tempLabel.textColor = .systemGreen
         } else {
             tempLabel.text =
-                "采样温度 \(t) ⚠️ 已不是贪心，跑批数据不可复现。\n" +
-                "请检查 MTMDParams.temperature 默认值（应为 0.0）后重新编译。"
+                BML.t("Temperature \(t) ⚠️ not greedy; benchmark results are not reproducible.\n",
+                    "采样温度 \(t) ⚠️ 已不是贪心，跑批数据不可复现。\n") +
+                BML.t("Check MTMDParams.temperature default (should be 0.0) and rebuild.",
+                    "请检查 MTMDParams.temperature 默认值（应为 0.0）后重新编译。")
             tempLabel.textColor = .systemOrange
         }
     }
@@ -522,8 +578,10 @@ public final class MBBenchmarkViewController: UIViewController {
     @objc private func datasetButtonTapped() {
         do {
             let summary = try BenchmarkSampleDataset.reinstallActiveTrack()
-            progressLabel.text = "已重铺数据集（track=\(BenchmarkCaseStore.activeTrack())）：\(summary)\n"
-                + "可在「文件」App 的 Documents/benchmark/ 下改图或改提示词"
+            progressLabel.text = BML.t("Dataset reinstalled (track=\(BenchmarkCaseStore.activeTrack())): \(summary)\n",
+                                     "已重铺数据集（track=\(BenchmarkCaseStore.activeTrack())）：\(summary)\n")
+                + BML.t("Edit images or prompts under Documents/benchmark/ in the Files app",
+                  "可在「文件」App 的 Documents/benchmark/ 下改图或改提示词")
             refreshDatasetButtonTitle()
         } catch {
             progressLabel.text = "操作失败：\(error.localizedDescription)"
