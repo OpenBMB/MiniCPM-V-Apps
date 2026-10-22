@@ -49,8 +49,11 @@ public final class MBBenchmarkViewController: UIViewController {
 
     private let repStepper = UIStepper()
     private let repLabel = UILabel()
-    private let tokenStepper = UIStepper()
-    private let tokenLabel = UILabel()
+    /// 输出 token 上限只给几档，避免 16/64 这种步进带来的无意义细调。
+    private static let tokenChoices = [128, 256, 512, 1024, 2048]
+    private let tokenPicker = UISegmentedControl(items: tokenChoices.map(String.init))
+    private let progressView = UIProgressView(progressViewStyle: .default)
+    private let progressCountLabel = UILabel()
     private let cooldownStepper = UIStepper()
     private let cooldownLabel = UILabel()
     /// 「数据集」折叠头（点击展开/收起）
@@ -115,12 +118,9 @@ public final class MBBenchmarkViewController: UIViewController {
         repStepper.addTarget(self, action: #selector(repChanged), for: .valueChanged)
         repLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
 
-        tokenStepper.minimumValue = 16
-        tokenStepper.maximumValue = 2048
-        tokenStepper.stepValue = 64
-        tokenStepper.value = Double(decodeTokenLimit)
-        tokenStepper.addTarget(self, action: #selector(tokenChanged), for: .valueChanged)
-        tokenLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .regular)
+        tokenPicker.selectedSegmentIndex =
+            Self.tokenChoices.firstIndex(of: decodeTokenLimit) ?? Self.tokenChoices.count / 2
+        tokenPicker.addTarget(self, action: #selector(tokenChanged), for: .valueChanged)
 
         // 折叠头：灰底圆角 + 尾部 chevron（系统原生观感，iOS 18~26 通用）
         var headCfg = UIButton.Configuration.gray()
@@ -248,7 +248,7 @@ public final class MBBenchmarkViewController: UIViewController {
 
         datasetButton.addTarget(self, action: #selector(datasetButtonTapped), for: .touchUpInside)
 
-        startButton.setTitle("开始跑批", for: .normal)
+        startButton.setTitle("执行批量测试", for: .normal)
         startButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         startButton.addTarget(self, action: #selector(startRun), for: .touchUpInside)
 
@@ -259,6 +259,11 @@ public final class MBBenchmarkViewController: UIViewController {
         exportButton.setTitle("导出最近一次结果", for: .normal)
         exportButton.addTarget(self, action: #selector(exportResult), for: .touchUpInside)
         exportButton.isEnabled = false
+
+        progressView.progress = 0
+        progressCountLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
+        progressCountLabel.textColor = .secondaryLabel
+        progressCountLabel.text = "未开始"
 
         progressLabel.font = .monospacedDigitSystemFont(ofSize: 14, weight: .regular)
         progressLabel.numberOfLines = 0
@@ -283,7 +288,7 @@ public final class MBBenchmarkViewController: UIViewController {
             makeHint("跨 case 的方差通常远大于同 case 重复间的方差，所以「多 case × 少重复」" +
                 "比「少 case × 多重复」信息量大。轮数主要用来估可复现性和压低标准误。"),
             makeSectionTitle("输出 token 上限"),
-            hstack(tokenLabel, tokenStepper),
+            tokenPicker,
             makeHint("只限上限，撞 EOG 会提前停（不同 case 输出长度可以不同）。"
                 + "设大一些能让需要长回答的 case 跑完。"),
             tempLabel,
@@ -292,6 +297,8 @@ public final class MBBenchmarkViewController: UIViewController {
             hstack(startButton, cancelButton),
             exportButton,
             makeSectionTitle("进度与统计"),
+            progressView,
+            progressCountLabel,
             progressLabel,
             resultTextView
         ])
@@ -341,7 +348,6 @@ public final class MBBenchmarkViewController: UIViewController {
     private func updateStepperLabels() {
         refreshTrackControls()
         repLabel.text = "\(repetitions) 轮"
-        tokenLabel.text = "≤ \(decodeTokenLimit) token"
         cooldownLabel.text = cooldownSec == 0 ? "不冷却" : "\(cooldownSec) 秒"
     }
 
@@ -356,7 +362,7 @@ public final class MBBenchmarkViewController: UIViewController {
                 self.startButton.isEnabled = !running
                 self.cancelButton.isEnabled = running
                 self.repStepper.isEnabled = !running
-                self.tokenStepper.isEnabled = !running
+                self.tokenPicker.isEnabled = !running
                 self.trackHeader.isEnabled = !running
                 for sl in self.trackSliders.values { sl.isEnabled = !running }
                 self.cooldownStepper.isEnabled = !running
@@ -367,6 +373,17 @@ public final class MBBenchmarkViewController: UIViewController {
         runner.$progressText
             .receive(on: DispatchQueue.main)
             .sink { [weak self] t in self?.progressLabel.text = t }
+            .store(in: &cancellables)
+
+        // 进度 = 已跑样本 / (case 数 × 轮数)。runner 里 doneCount 按样本累加，
+        // totalCount 由 config.totalSamples(caseCount:) 算，含预热样本之外的计量轮。
+        Publishers.CombineLatest(runner.$doneCount, runner.$totalCount)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] done, total in
+                guard let self = self else { return }
+                self.progressView.progress = total > 0 ? Float(done) / Float(total) : 0
+                self.progressCountLabel.text = total > 0 ? "\(done) / \(total) 条" : "未开始"
+            }
             .store(in: &cancellables)
 
         runner.$lastResult
@@ -395,7 +412,8 @@ public final class MBBenchmarkViewController: UIViewController {
     }
 
     @objc private func tokenChanged() {
-        decodeTokenLimit = Int(tokenStepper.value)
+        let i = max(0, tokenPicker.selectedSegmentIndex)
+        decodeTokenLimit = Self.tokenChoices[min(i, Self.tokenChoices.count - 1)]
         updateStepperLabels()
     }
 
