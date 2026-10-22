@@ -346,8 +346,8 @@ public final class BenchmarkRunner: ObservableObject {
         // 分阶段能量：无图时它就是「KV 清空后」的基线
         var energyAfterImage = BenchmarkEnergyProbe.take()
 
-        // 工具定义必须作为第一个 system 段写入（n_past == 0），模型才知道有哪些函数可调。
-        // turnWallMs 下标与消息一一对应，所以这一段不占位（它的耗时落在 prefill 的 prep 里）。
+        // 工具定义必须作为第一个 system 段写入（n_past == 0），否则模型看不到函数列表。
+        // 它不计入 turnWallMs（该数组与 messages 一一对应），耗时已并入引擎侧的 prefill 累计值。
         if let toolsJSON = c.toolsJSON, errorMsg == nil {
             if turns.first?.role == .system {
                 errorMsg = "tools 与独立 system 消息同时出现暂不支持（case \(c.key)）"
@@ -364,7 +364,9 @@ public final class BenchmarkRunner: ObservableObject {
             if let image = turn.image {
                 imageTurns += 1
                 if imageTurns > 1 {
-                    errorMsg = "只有第一轮可以带图（case \(c.key)）"
+                    // 图必须紧跟在它所属的 user 轮之前（chatml_moe 下图片 KV 是延迟写入的），
+                    // 多条消息各带一张会破坏这个对应关系。
+                    errorMsg = "每条 case 只支持一张图（case \(c.key)）"
                     break
                 }
                 let path = BenchmarkCaseStore.imageURL(image).path
@@ -383,7 +385,7 @@ public final class BenchmarkRunner: ObservableObject {
             }
 
             guard let role = turn.role.prefillRole(isLast: index == turns.count - 1) else {
-                errorMsg = "tool 消息暂不支持（C 层无 tool 模板，case \(c.key)）"
+                errorMsg = "tool 消息需在数据侧渲染成 user 的 <tool_response> 段（case \(c.key)）"
                 continue
             }
 

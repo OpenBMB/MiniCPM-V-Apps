@@ -2684,8 +2684,12 @@ int mb_mtmd_prefill_text(mb_mtmd_context * ctx, const char * text_in, const char
         formatted += "<|im_start|>assistant\n<think>\n\n</think>\n\n" + text + "<|im_end|>\n";
     } else if (role == "tools") {
         // 工具定义段：text 是 tools 的 JSON 数组原文（调用方负责序列化）。
-        // 这段必须位于所有消息之前（n_past == 0），格式取自 checkpoint 自带的 ChatML 模板：
-        // 有 tools 时用一个独立的 system 段承载，而不是塞进 user 轮。
+        // 格式取自 checkpoint 自带的 ChatML 模板：有 tools 时用一个独立的 system 段承载，
+        // 而且必须是对话的第一段。
+        if (ctx->n_past != 0) {
+            set_error(ctx, "prefill_text: tools 段必须是第一条消息");
+            return -1;
+        }
         formatted += "<|im_start|>system\n"
                      "# Tools\n\n"
                      "You have access to the following functions:\n\n"

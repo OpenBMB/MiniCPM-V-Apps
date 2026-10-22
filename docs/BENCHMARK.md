@@ -138,7 +138,7 @@ xcrun devicectl device copy from --device $UDID \
 |---|---:|---|---|
 | **`vision_mix_50`** (default) | 50 | Image recognition / description / short-answer mix (25 reviewed real cases + 25 synthetic short-answer cases) | 3001–3050 |
 | `mlperf_llm` | 133 | MLPerf Mobile v6.0: Tiny-MMLU (100) + Tiny-IFEval-33 (33), **text only** | 1001–1100 / 2001–2033 |
-| `openai_messages_samples` | 3 | Message-style samples: 9001 (single-turn image+text), 9002 (**multi-turn**: system → user+image → assistant → user), 9003 (**`tools`** + single turn). 9004 (tool round-trip) not included yet | 9001–9003 |
+| `openai_messages_samples` | 4 | Message-style samples: 9001 (single-turn image+text), 9002 (**multi-turn**), 9003 (**`tools`** + single turn), 9004 (**tool round-trip**: user → assistant tool_calls → tool results → answer) | 9001–9004 |
 
 The key ranges do not overlap, so tracks can run in one block (results are distinguished by `key`).
 
@@ -209,6 +209,21 @@ be the first thing prefilled:
   no current case needs it);
 - tool output is **not** parsed or validated: the harness measures the token sequence, not whether the
   emitted function name was correct.
+
+**Tool round-trip (9004)** — assistant `tool_calls` and `tool` results are **pre-rendered in the data**,
+not at runtime, because the template merges them in ways per-message prefill cannot reproduce:
+
+```
+assistant.tool_calls  →  <tool_call>\n<function=NAME>\n<parameter=K>\nV\n</parameter>\n</function>\n</tool_call>
+                         (multiple calls joined with "\n", prefixed by "\n\n" when the message has content)
+consecutive tool msgs →  ONE user turn: <tool_response>\n{c1}\n</tool_response>\n<tool_response>\n{c2}\n</tool_response>
+```
+
+Consequences: `role: "tool"` never appears in `cases.jsonl` (the runner rejects it), and because the merged
+tool turn is a plain `user` message, the model answers right after it — no special "prefill-only" mode.
+The assistant turn needs no runtime change either: `assistant_hist` already emits
+`<|im_start|>assistant\n<think>\n\n</think>\n\n{text}<|im_end|>`, which is exactly what a pre-rendered
+`tool_calls` payload builds on.
 
 **Timing convention (B — whole conversation):** `prefill_ms` / `prefill_tokens` accumulate over *all*
 turns, while `decode_ms` covers only the final answer. This matches how MLPerf treats few-shot context:

@@ -92,7 +92,9 @@ public enum BenchmarkJSON: Codable, Equatable {
         case .null: return "null"
         case .array(let v): return "[" + v.map(\.jsonText).joined(separator: ",") + "]"
         case .object(let v):
-            let body = v.keys.sorted().map { "\"\($0)\":" + v[$0]!.jsonText }.joined(separator: ",")
+            let body = v.keys.sorted()
+                .map { "\"\($0)\":" + (v[$0]?.jsonText ?? "null") }
+                .joined(separator: ",")
             return "{" + body + "}"
         }
     }
@@ -108,8 +110,8 @@ public struct BenchmarkMessage: Codable, Equatable {
         case system
         case user
         case assistant
-        /// OpenAI 的 tool 结果消息。C 层 ChatML 模板没有 tool 分支，runner 会直接判失败；
-        /// 留在枚举里是为了能读进来并给出明确报错，而不是解析阶段就报错。
+        /// OpenAI 的 tool 结果消息。**不要直接写进数据集**：模板会把连续多条 tool 结果合并成一个
+        /// user 段，逐条 prefill 会多出 `<|im_start|>`/`<|im_end|>`；这类消息在数据侧渲染成 user 文本。
         case tool
     }
 
