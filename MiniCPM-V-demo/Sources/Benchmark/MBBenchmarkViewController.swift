@@ -55,8 +55,12 @@ public final class MBBenchmarkViewController: UIViewController {
     private let cooldownLabel = UILabel()
     /// 「数据集」折叠头（点击展开/收起）
     private let trackHeader = UIButton(type: .system)
-    /// 展开后的卡片：每条 track 一行（标题 + 滑条 + 说明）
+    /// 展开后的卡片：默认数据集里**每条 case 一行 + 开关**
     private let trackCard = UIStackView()
+    /// 「其它数据集」折叠头 + 卡片（vision_mix_50 / mlperf_llm 收在这里，默认收起）
+    private let otherTracksHeader = UIButton(type: .system)
+    private let otherTracksCard = UIStackView()
+    private var caseSwitches: [Int: UISwitch] = [:]
     private var trackSliders: [String: UISlider] = [:]
     private var trackValueLabels: [String: UILabel] = [:]
     private let tempLabel = UILabel()
@@ -138,9 +142,61 @@ public final class MBBenchmarkViewController: UIViewController {
         trackCard.backgroundColor = .secondarySystemGroupedBackground
         trackCard.layer.cornerRadius = 12
         trackCard.layer.cornerCurve = .continuous
-        trackCard.isHidden = true
+        // 默认展开：单条开关是主操作，收起来就等于看不见。
 
-        for (i, t) in BenchmarkCaseStore.bundledTracks.enumerated() {
+        // 默认数据集：每条 case 一行 + 开关（默认全开）。
+        for c in (try? BenchmarkCaseStore.load(track: BenchmarkCaseStore.defaultTrack)) ?? [] {
+            let sw = UISwitch()
+            sw.isOn = BenchmarkCaseStore.isCaseEnabled(c.key)
+            sw.tag = c.key
+            sw.addTarget(self, action: #selector(caseSwitchChanged(_:)), for: .valueChanged)
+            caseSwitches[c.key] = sw
+
+            let title = UILabel()
+            title.text = "\(c.key) · \(c.displayKind)"
+            title.font = .systemFont(ofSize: 15, weight: .semibold)
+
+            let top = UIStackView(arrangedSubviews: [title, sw])
+            top.axis = .horizontal
+            top.alignment = .center
+
+            // 副标题取第一条 user 消息，system 那行对识别没帮助。
+            let prompt = (c.turns.first { $0.role == .user }?.text ?? "")
+                .replacingOccurrences(of: "\n", with: " ")
+            let desc = UILabel()
+            desc.text = prompt.count > 40 ? String(prompt.prefix(40)) + "…" : prompt
+            desc.font = .systemFont(ofSize: 12)
+            desc.textColor = .secondaryLabel
+            desc.numberOfLines = 1
+
+            let row = UIStackView(arrangedSubviews: [top, desc])
+            row.axis = .vertical
+            row.spacing = 2
+            trackCard.addArrangedSubview(row)
+        }
+
+        // 其它数据集：折叠 + 滑条，默认收起、默认 0 条。
+        var otherCfg = UIButton.Configuration.gray()
+        otherCfg.title = "其它数据集"
+        otherCfg.image = UIImage(systemName: "chevron.down")
+        otherCfg.imagePlacement = .trailing
+        otherCfg.imagePadding = 10
+        otherCfg.cornerStyle = .medium
+        otherCfg.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
+        otherTracksHeader.configuration = otherCfg
+        otherTracksHeader.addTarget(self, action: #selector(toggleOtherTracks), for: .touchUpInside)
+
+        otherTracksCard.axis = .vertical
+        otherTracksCard.spacing = 18
+        otherTracksCard.isLayoutMarginsRelativeArrangement = true
+        otherTracksCard.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 16, leading: 16,
+                                                                           bottom: 16, trailing: 16)
+        otherTracksCard.backgroundColor = .secondarySystemGroupedBackground
+        otherTracksCard.layer.cornerRadius = 12
+        otherTracksCard.layer.cornerCurve = .continuous
+        otherTracksCard.isHidden = true
+
+        for t in BenchmarkCaseStore.bundledTracks where t != BenchmarkCaseStore.defaultTrack {
             let total = BenchmarkCaseStore.trackTotal(t)
 
             let name = UILabel()
@@ -163,7 +219,7 @@ public final class MBBenchmarkViewController: UIViewController {
             slider.maximumValue = Float(max(1, total))
             slider.value = Float(min(plan[t] ?? 0, total))
             slider.isContinuous = true
-            slider.tag = i
+            slider.tag = BenchmarkCaseStore.bundledTracks.firstIndex(of: t) ?? 0
             slider.isEnabled = total > 0
             slider.addTarget(self, action: #selector(trackSliderChanged(_:)), for: .valueChanged)
             trackSliders[t] = slider
@@ -177,7 +233,7 @@ public final class MBBenchmarkViewController: UIViewController {
             let row = UIStackView(arrangedSubviews: [top, slider, desc])
             row.axis = .vertical
             row.spacing = 4
-            trackCard.addArrangedSubview(row)
+            otherTracksCard.addArrangedSubview(row)
         }
 
         cooldownStepper.minimumValue = 0
@@ -218,7 +274,9 @@ public final class MBBenchmarkViewController: UIViewController {
         let stack = UIStackView(arrangedSubviews: [
             trackHeader,
             trackCard,
-            makeHint("拖动滑条决定每条数据集本次跑多少条（0 = 不跑）。"
+            otherTracksHeader,
+            otherTracksCard,
+            makeHint("默认数据集按「单条 case」勾选；其它数据集按条数滑条选择。"
                 + "数据集随 App 分发、启动自动铺好，无需手动传输。"),
             makeSectionTitle("重复轮数"),
             hstack(repLabel, repStepper),
@@ -248,6 +306,10 @@ public final class MBBenchmarkViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
             stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -24)
         ])
+
+        // 同步一次计划：默认数据集按「开着的条数」跑，避免历史保存的 plan 里没有它而跑空。
+        plan[BenchmarkCaseStore.defaultTrack] = enabledCaseCount()
+        BenchmarkCaseStore.setPlan(plan)
 
         updateStepperLabels()
     }
@@ -343,6 +405,34 @@ public final class MBBenchmarkViewController: UIViewController {
         refreshTrackControls()
     }
 
+    /// 展开 / 收起「其它数据集」。
+    @objc private func toggleOtherTracks() {
+        otherTracksCard.isHidden.toggle()
+        var cfg = otherTracksHeader.configuration ?? UIButton.Configuration.gray()
+        cfg.image = UIImage(systemName: otherTracksCard.isHidden ? "chevron.down" : "chevron.up")
+        otherTracksHeader.configuration = cfg
+    }
+
+    /// 单条 case 的开关。写回后把默认数据集的「本次跑几条」同步成启用条数。
+    @objc private func caseSwitchChanged(_ sender: UISwitch) {
+        BenchmarkCaseStore.setCaseEnabled(sender.tag, sender.isOn)
+        plan[BenchmarkCaseStore.defaultTrack] = enabledCaseCount()
+        BenchmarkCaseStore.setPlan(plan)
+        refreshTrackControls()
+    }
+
+    /// 默认数据集里当前开着几条。
+    private func enabledCaseCount() -> Int {
+        caseSwitches.values.filter { $0.isOn }.count
+    }
+
+    /// 「其它数据集」当前选中的总条数。
+    private func otherTrackCount() -> Int {
+        BenchmarkCaseStore.bundledTracks
+            .filter { $0 != BenchmarkCaseStore.defaultTrack }
+            .reduce(0) { $0 + (plan[$1] ?? 0) }
+    }
+
     /// 拖动滑条：取整、写回 plan、刷新标题。
     @objc private func trackSliderChanged(_ sender: UISlider) {
         let tracks = BenchmarkCaseStore.bundledTracks
@@ -357,8 +447,8 @@ public final class MBBenchmarkViewController: UIViewController {
 
     /// 刷新折叠头（共 N 条）与每行的 "已选 / 总数"。
     private func refreshTrackControls() {
-        var total = 0
-        for t in BenchmarkCaseStore.bundledTracks {
+        var total = enabledCaseCount()
+        for t in BenchmarkCaseStore.bundledTracks where t != BenchmarkCaseStore.defaultTrack {
             let n = plan[t] ?? 0
             total += n
             trackValueLabels[t]?.text = "\(n) / \(BenchmarkCaseStore.trackTotal(t))"
@@ -423,6 +513,11 @@ public final class MBBenchmarkViewController: UIViewController {
     }
 
     @objc private func startRun() {
+        // 全关时 selectedPlan() 会回落到「默认 track 跑满」，那样等于没生效，先挡掉。
+        guard enabledCaseCount() + otherTrackCount() > 0 else {
+            progressLabel.text = "没有选择任何 case：默认数据集至少开一条，或在「其它数据集」里把条数调大"
+            return
+        }
         Task { [weak self] in
             guard let self = self else { return }
             let cases: [BenchmarkCase]

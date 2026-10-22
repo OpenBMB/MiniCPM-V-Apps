@@ -29,16 +29,18 @@ One case = **one image (optional) + one prompt**, single turn, no conversation h
 
 ### 2.1 Run from the app UI (recommended)
 
-1. Launch the app and wait for the model to finish loading.
-2. Tap the circular button at the bottom-right of the home screen to open **Batch Benchmark**
-   (its accessibility label is the screen title; the same entry exists in Settings).
-3. From top to bottom:
-   - **Dataset** — tap the header to expand; each dataset has a slider choosing how many cases to run this round (`0 … total`, `0` = skip);
+1. Launch the app. It goes to the home screen and then **opens Batch Benchmark by itself** once the model
+   has loaded — the same as tapping the circular button at the bottom-right (`-noOpenBenchmark` opts out).
+   The same page is also reachable from Settings.
+2. From top to bottom:
+   - **Dataset** — expanded by default. Each case of the default track (`openai_messages_samples`) has its
+     own switch, so cases can be included or skipped individually; the other tracks live under a collapsed
+     **其它数据集** section where a slider picks how many cases to run (`0 … total`, `0` = skip);
    - **Output token limit** — default 512. It only caps the length: generation ends early on EOG, so output length may differ across cases;
    - **Repetitions** — default 1. Cross-case variance is usually much larger than across-repetition variance, so "many cases × few repetitions" estimates the population variance more efficiently;
    - **Start / Cancel / Export last result**;
    - **Progress & statistics** — live progress plus the summary table.
-4. When finished, tap "Export last result" and grab the JSON via the share sheet (or copy it out of Files, see §6).
+3. When finished, tap "Export last result" and grab the JSON via the share sheet (or copy it out of Files, see §6).
 
 > If an orange temperature warning appears, `MTMDParams.temperature != 0` — results are not reproducible then. Set sampling temperature back to 0 first.
 

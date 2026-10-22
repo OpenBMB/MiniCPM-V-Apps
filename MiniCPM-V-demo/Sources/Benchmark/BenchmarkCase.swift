@@ -190,6 +190,16 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
         return BenchmarkJSON.array(tools).jsonText
     }
 
+    /// UI 里一行标题用的形态描述。按内容推断，不额外维护文案。
+    public var displayKind: String {
+        if tools?.isEmpty == false {
+            let roundTrip = turns.contains { $0.role == .assistant && $0.text.contains("<tool_call>") }
+            return roundTrip ? "工具往返" : "工具调用"
+        }
+        if turns.count > 1 { return "多轮（\(turns.count) 轮）" }
+        return turns.contains { $0.image != nil } ? "单轮图文" : "单轮文本"
+    }
+
     public init(key: Int,
                 image: String?,
                 text: String,
@@ -238,8 +248,23 @@ public enum BenchmarkCaseStore {
     /// 内置有哪些 track（顺序即 UI 里的展示顺序）。
     public static let bundledTracks = ["vision_mix_50", "mlperf_llm", "openai_messages_samples"]
 
-    /// 默认 track。
-    public static let defaultTrack = "vision_mix_50"
+    /// 默认 track。界面默认展示、默认启用它。
+    public static let defaultTrack = "openai_messages_samples"
+
+    /// 每条 case 的开关（`"key" → 是否启用`）。没记录过的 key 视为启用，
+    /// 这样新增数据集不用先写一遍默认值。
+    public static let caseEnabledDefaultsKey = "bench_case_enabled"
+
+    public static func isCaseEnabled(_ key: Int) -> Bool {
+        let map = UserDefaults.standard.dictionary(forKey: caseEnabledDefaultsKey) as? [String: Bool]
+        return map?[String(key)] ?? true
+    }
+
+    public static func setCaseEnabled(_ key: Int, _ enabled: Bool) {
+        var map = (UserDefaults.standard.dictionary(forKey: caseEnabledDefaultsKey) as? [String: Bool]) ?? [:]
+        map[String(key)] = enabled
+        UserDefaults.standard.set(map, forKey: caseEnabledDefaultsKey)
+    }
 
     /// 多选时存哪个 key（UI 里勾选的 track 列表）。
     public static let tracksDefaultsKey = "bench_dataset_tracks"
@@ -270,10 +295,22 @@ public enum BenchmarkCaseStore {
         return out
     }
 
+    /// 一次性迁移：旧版本把条数存在 plan 里（`vision_mix_50=50` 之类），
+    /// 新版本默认只跑 `defaultTrack`、其它 track 归零，否则老设备一进来就是 50+4 条。
+    private static let planMigrationKey = "bench_plan_migrated_openai_v1"
+
+    private static func migratePlanIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: planMigrationKey) else { return }
+        UserDefaults.standard.set([defaultTrack: trackTotal(defaultTrack)], forKey: planDefaultsKey)
+        UserDefaults.standard.set(true, forKey: planMigrationKey)
+        overridePlan = nil
+    }
+
     /// 本次要跑的「每条 track 跑多少条」。0 表示不跑。
     ///
     /// 优先级：`overridePlan`（UI）→ `-benchDataset a,b`（各跑满）→ UserDefaults → 默认（默认 track 跑满）。
     public static func selectedPlan() -> [String: Int] {
+        migratePlanIfNeeded()
         if let over = overridePlan, over.values.contains(where: { $0 > 0 }) {
             return clamp(over)
         }
@@ -406,14 +443,23 @@ public enum BenchmarkCaseStore {
     }
 
     /// 按「每条 track 跑多少条」拼出本次要跑的 case 列表（各取前 N 条）。
+    ///
+    /// 单条开关（`isCaseEnabled`）先生效：关掉的 case 不参与，N 在剩下的里面取前 N 条。
     public static func load(plan: [String: Int]) throws -> [BenchmarkCase] {
         var out: [BenchmarkCase] = []
         for t in bundledTracks {
             let n = min(max(0, plan[t] ?? 0), trackTotal(t))
             guard n > 0 else { continue }
-            out += Array(try decode(contentsOf: try casesURL(track: t)).prefix(n))
+            let picked = try decode(contentsOf: try casesURL(track: t))
+                .filter { isCaseEnabled($0.key) }
+            out += Array(picked.prefix(n))
         }
         return out
+    }
+
+    /// 读某条 track 的全部 case（UI 列单条开关时用）。
+    public static func load(track: String) throws -> [BenchmarkCase] {
+        try decode(contentsOf: try casesURL(track: track))
     }
 
     /// 读当前选择。
