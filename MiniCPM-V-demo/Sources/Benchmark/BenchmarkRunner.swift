@@ -405,6 +405,13 @@ public final class BenchmarkRunner: ObservableObject {
             if !settled { errorMsg = "生成超时（>\(Int(Self.perCaseTimeoutSec))s）" }
         }
 
+        // 生成文本留档（截断），并给带 tools 的 case 打一个「是否真的调用了函数」的标记。
+        let output = example.mtmdWrapper.fullOutput
+        let outputText = output.count > Self.maxOutputChars
+            ? String(output.prefix(Self.maxOutputChars))
+            : output
+        let toolCallDetected: Bool? = c.toolsJSON == nil ? nil : output.contains("<tool_call>")
+
         let wallMs = Date().timeIntervalSince(t0) * 1000.0
         let p = example.mtmdWrapper.lastPerf
 
@@ -452,12 +459,17 @@ public final class BenchmarkRunner: ObservableObject {
             batteryStateAfter: Self.batteryStateString(),
             residentMemoryMiB: Self.residentMemoryMiB(),
             error: errorMsg,
-            turnWallMs: turnWallMs
+            turnWallMs: turnWallMs,
+            outputText: outputText,
+            toolCallDetected: toolCallDetected
         )
     }
 
     /// 单条 case 的超时上限（秒）。给足，正常一条远小于这个值。
     private static let perCaseTimeoutSec: Double = 180
+
+    /// 结果文件里保留的输出文本上限（字符）。长回答只截断，不影响指标。
+    private static let maxOutputChars = 2000
 
     /// 等生成进入终态。
     ///

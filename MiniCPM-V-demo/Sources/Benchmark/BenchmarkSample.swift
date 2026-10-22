@@ -109,6 +109,13 @@ public struct BenchmarkSample: Codable {
     /// 墙钟含线程调度噪声，不要当主指标用。
     public let turnWallMs: [Double]?
 
+    /// 生成文本（截断保留）。写入结果文件是为了能事后核对 9003/9004 这类需要看内容的 case，
+    /// 不必再去翻设备上的 `mb_run_log.txt`。
+    public let outputText: String?
+
+    /// case 声明了 `tools` 时，输出里是否出现 `<tool_call>`；没声明 tools 时为 nil。
+    public let toolCallDetected: Bool?
+
     // MARK: - 异常
 
     /// 本条是否跑失败；非 nil 即失败原因，该条不进统计。
@@ -143,7 +150,9 @@ public struct BenchmarkSample: Codable {
                 batteryStateAfter: String,
                 residentMemoryMiB: Double,
                 error: String?,
-                turnWallMs: [Double]? = nil) {
+                turnWallMs: [Double]? = nil,
+                outputText: String? = nil,
+                toolCallDetected: Bool? = nil) {
         self.runId = runId
         self.repetition = repetition
         self.isWarmup = isWarmup
@@ -171,6 +180,8 @@ public struct BenchmarkSample: Codable {
         self.residentMemoryMiB = residentMemoryMiB
         self.error = error
         self.turnWallMs = turnWallMs
+        self.outputText = outputText
+        self.toolCallDetected = toolCallDetected
 
         self.unaccountedMs = wallMs - (imageEncodeMs + prewarmMs + prepMs + prefillMs + decodeMs)
         self.ttftEngineMs = prefillMs
