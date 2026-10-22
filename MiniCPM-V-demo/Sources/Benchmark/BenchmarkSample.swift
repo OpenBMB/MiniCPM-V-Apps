@@ -103,6 +103,12 @@ public struct BenchmarkSample: Codable {
     /// 本条跑完时的常驻内存，MiB
     public let residentMemoryMiB: Double
 
+    /// 每一轮 prefill 的墙钟耗时（ms），下标 = 消息序号；单轮 case 长度为 1。
+    ///
+    /// 主指标是引擎侧累计值（口径 B），这一项只用于事后切出「末轮单独」或「逐轮」视图。
+    /// 墙钟含线程调度噪声，不要当主指标用。
+    public let turnWallMs: [Double]?
+
     // MARK: - 异常
 
     /// 本条是否跑失败；非 nil 即失败原因，该条不进统计。
@@ -136,7 +142,8 @@ public struct BenchmarkSample: Codable {
                 batteryStateBefore: String,
                 batteryStateAfter: String,
                 residentMemoryMiB: Double,
-                error: String?) {
+                error: String?,
+                turnWallMs: [Double]? = nil) {
         self.runId = runId
         self.repetition = repetition
         self.isWarmup = isWarmup
@@ -163,6 +170,7 @@ public struct BenchmarkSample: Codable {
         self.batteryStateAfter = batteryStateAfter
         self.residentMemoryMiB = residentMemoryMiB
         self.error = error
+        self.turnWallMs = turnWallMs
 
         self.unaccountedMs = wallMs - (imageEncodeMs + prewarmMs + prepMs + prefillMs + decodeMs)
         self.ttftEngineMs = prefillMs

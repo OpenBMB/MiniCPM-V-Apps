@@ -331,31 +331,55 @@ public final class BenchmarkRunner: ObservableObject {
             example.clearKVCacheForNewTurn()
         }
 
-        // ② 图
+        // ②③ 逐轮 prefill。单轮 case 被合成为一条 user 消息，两种形态走同一条路径。
         //
-        // 预热单独计时：它不只是"重建 ubatch"，还会真从 SSD 读专家做预热。
-        // 首轮实测 wall-clock 有约 3.4 s/条对不上账，怀疑主要就在这里 ——
-        // 引擎侧没有任何计时覆盖它（perf_image_ms 只覆盖 eager 编码）。
-        var prewarmMs: Double = 0
-        if let image = c.image {
-            let path = BenchmarkCaseStore.imageURL(image).path
-            let ok = await example.addImageInBackground(path)
-            if !ok {
-                errorMsg = "图片 prefill 失败：\(image)"
-            } else if config.prewarmAfterImage {
-                let t = Date()
-                await example.prewarmAfterImageInBackground()
-                prewarmMs = Date().timeIntervalSince(t) * 1000.0
-            }
+        // 口径 B：各轮 prefill 由引擎侧累加、decode 只算末轮，所以 prefill_ms /
+        // prefill_tokens 是「整段会话」口径，见 docs/BENCHMARK.md §5.4。
+        let turns = c.turns
+        if turns.last?.role != .user {
+            // 以 assistant 收尾的 case 不会写入 assistant 头，等于一段没有起点的续写，测了没意义。
+            errorMsg = "末轮必须是 user（case \(c.key)）"
         }
+        var prewarmMs: Double = 0
+        var turnWallMs: [Double] = []
+        var imageTurns = 0
+        // 分阶段能量：无图时它就是「KV 清空后」的基线
+        var energyAfterImage = BenchmarkEnergyProbe.take()
 
-        // 分阶段能量：图片处理 + 专家预热这一段结束
-        let energyAfterImage = BenchmarkEnergyProbe.take()
+        for (index, turn) in turns.enumerated() where errorMsg == nil {
+            // 预热单独计时：它不只是"重建 ubatch"，还会真从 SSD 读专家做预热。
+            // 首轮实测 wall-clock 有约 3.4 s/条对不上账，怀疑主要就在这里 ——
+            // 引擎侧没有任何计时覆盖它（perf_image_ms 只覆盖 eager 编码）。
+            if let image = turn.image {
+                imageTurns += 1
+                if imageTurns > 1 {
+                    errorMsg = "只有第一轮可以带图（case \(c.key)）"
+                    break
+                }
+                let path = BenchmarkCaseStore.imageURL(image).path
+                let ok = await example.addImageInBackground(path)
+                if !ok {
+                    errorMsg = "图片 prefill 失败：\(image)"
+                    break
+                }
+                if config.prewarmAfterImage {
+                    let t = Date()
+                    await example.prewarmAfterImageInBackground()
+                    prewarmMs = Date().timeIntervalSince(t) * 1000.0
+                }
+                // 分阶段能量：图片处理 + 专家预热这一段结束
+                energyAfterImage = BenchmarkEnergyProbe.take()
+            }
 
-        // ③ 文本
-        if errorMsg == nil {
-            let ok = await example.addTextInBackground(c.text)
-            if !ok { errorMsg = "文本 prefill 失败" }
+            guard let role = turn.role.prefillRole(isLast: index == turns.count - 1) else {
+                errorMsg = "tool 消息暂不支持（C 层无 tool 模板，case \(c.key)）"
+                continue
+            }
+
+            let t = Date()
+            let ok = await example.addTextInBackground(turn.text, role: role)
+            turnWallMs.append(Date().timeIntervalSince(t) * 1000.0)
+            if !ok { errorMsg = "文本 prefill 失败（role=\(role)）" }
         }
 
         // 分阶段能量：prefill 结束（此时还没开始解码）
@@ -394,7 +418,7 @@ public final class BenchmarkRunner: ObservableObject {
             isWarmup: isWarmup,
             orderInPass: orderInPass,
             caseKey: c.key,
-            promptUTF8Length: c.text.utf8.count,
+            promptUTF8Length: turns.reduce(0) { $0 + $1.text.utf8.count },
             startISO: Self.iso8601(t0),
             wallMs: wallMs,
             prefillTokens: Int(p.prefill_tokens),
@@ -414,7 +438,8 @@ public final class BenchmarkRunner: ObservableObject {
             batteryStateBefore: batteryStateBefore,
             batteryStateAfter: Self.batteryStateString(),
             residentMemoryMiB: Self.residentMemoryMiB(),
-            error: errorMsg
+            error: errorMsg,
+            turnWallMs: turnWallMs
         )
     }
 

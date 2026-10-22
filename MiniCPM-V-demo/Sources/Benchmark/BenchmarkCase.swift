@@ -18,7 +18,57 @@
 
 import Foundation
 
+/// 多轮 case 里的一条消息。
+///
+/// 只保留批量测试需要的三个字段：`role` / `text` / `image?`，不用 OpenAI 那种
+/// `content: string | [{type, ...}]` 的多态写法 —— 基准测试只需要「一条消息 = 一段文本 + 至多一张图」。
+public struct BenchmarkMessage: Codable, Equatable {
+
+    public enum Role: String, Codable {
+        case system
+        case user
+        case assistant
+        /// OpenAI 的 tool 结果消息。C 层 ChatML 模板没有 tool 分支，runner 会直接判失败；
+        /// 留在枚举里是为了能读进来并给出明确报错，而不是解析阶段就报错。
+        case tool
+    }
+
+    public let role: Role
+
+    public let text: String
+
+    /// 图片文件名，语义同 `BenchmarkCase.image`；只允许出现在第一条 user 消息上。
+    public let image: String?
+
+    public init(role: Role, text: String, image: String? = nil) {
+        self.role = role
+        self.text = text
+        self.image = image
+    }
+}
+
+extension BenchmarkMessage.Role {
+
+    /// 映射到 C 层 `prefill_text` 认的 role 字符串；`tool` 没有对应模板，返回 nil。
+    ///
+    /// 只有末轮 user 用 `user`（它会写入 assistant 头并触发生成），其余 user 走 `user_hist`；
+    /// assistant 历史走 `assistant_hist`（自带 assistant 头）。两者都不能复用 `user` / `assistant`，
+    /// 原因见 `MBMtmd.mm` 里这两个分支的注释。
+    func prefillRole(isLast: Bool) -> String? {
+        switch self {
+        case .system:    return "system"
+        case .assistant: return "assistant_hist"
+        case .user:      return isLast ? "user" : "user_hist"
+        case .tool:      return nil
+        }
+    }
+}
+
 /// 一条测试 case。
+///
+/// 两种形态共存于同一份 `cases.jsonl`：
+/// - 单轮：`{key, image?, text}` —— 现有 track 全是这种；
+/// - 多轮：`{key, messages: [{role, text, image?}, …]}` —— 见 `openai_messages_samples`。
 public struct BenchmarkCase: Codable, Identifiable, Equatable {
 
     /// 主键，对应 MLPerf 数据集里的 `key`。
@@ -27,19 +77,45 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
     /// 图片文件名，相对 `BenchmarkCaseStore.rootURL`；纯文本 case 可为 nil。
     public let image: String?
 
-    /// 提问文本。
+    /// 提问文本（单轮 case）。
     ///
     /// 批量测试要求**每条 case 的输出长度可比**，所以文本必须固定长度
     /// （沿用桌面侧「各自恰好 2 token」的口径）；文本长度不同会让
     /// prefill 的 token 数不同，进而让 TTFT 混进无关变量。
+    /// 多轮 case 这一项可为空串，正文放在 `messages` 里。
     public let text: String
+
+    /// 多轮 case 的消息序列；为空表示按单轮（`image` + `text`）执行。
+    public let messages: [BenchmarkMessage]?
 
     public var id: Int { key }
 
-    public init(key: Int, image: String?, text: String) {
+    /// 按顺序要 prefill 的消息。单轮 case 合成为一条 user 消息，
+    /// runner 对单轮 / 多轮只走一条代码路径。
+    public var turns: [BenchmarkMessage] {
+        if let msgs = messages, !msgs.isEmpty { return msgs }
+        return [BenchmarkMessage(role: .user, text: text, image: image)]
+    }
+
+    public init(key: Int, image: String?, text: String, messages: [BenchmarkMessage]? = nil) {
         self.key = key
         self.image = image
         self.text = text
+        self.messages = messages
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, image, text, messages
+    }
+
+    /// 自定义解码：多轮 case 不写 `text`，所以要给缺省值。
+    /// 这样一份 `cases.jsonl` 能同时容纳两种形态，不用维护两套解析器。
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(Int.self, forKey: .key)
+        image = try c.decodeIfPresent(String.self, forKey: .image)
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        messages = try c.decodeIfPresent([BenchmarkMessage].self, forKey: .messages)
     }
 }
 
@@ -61,7 +137,7 @@ public enum BenchmarkCaseSource: String {
 public enum BenchmarkCaseStore {
 
     /// 内置有哪些 track（顺序即 UI 里的展示顺序）。
-    public static let bundledTracks = ["vision_mix_50", "mlperf_llm"]
+    public static let bundledTracks = ["vision_mix_50", "mlperf_llm", "openai_messages_samples"]
 
     /// 默认 track。
     public static let defaultTrack = "vision_mix_50"

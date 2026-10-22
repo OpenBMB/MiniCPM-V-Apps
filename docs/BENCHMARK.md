@@ -132,14 +132,15 @@ xcrun devicectl device copy from --device $UDID \
 
 ## 5. Datasets
 
-### 5.1 Two bundled tracks
+### 5.1 Three bundled tracks
 
 | Track | Cases | Content | key range |
 |---|---:|---|---|
 | **`vision_mix_50`** (default) | 50 | Image recognition / description / short-answer mix (25 reviewed real cases + 25 synthetic short-answer cases) | 3001–3050 |
 | `mlperf_llm` | 133 | MLPerf Mobile v6.0: Tiny-MMLU (100) + Tiny-IFEval-33 (33), **text only** | 1001–1100 / 2001–2033 |
+| `openai_messages_samples` | 2 | Message-style samples: 9001 (single-turn image+text), 9002 (**multi-turn**: system → user+image → assistant → user). 9003/9004 need tool support and are not included | 9001–9002 |
 
-The two key ranges do not overlap, so both tracks can run in one block (results are distinguished by `key`).
+The key ranges do not overlap, so tracks can run in one block (results are distinguished by `key`).
 
 Selection precedence: CLI `-benchDataset` > plan saved from the UI sliders > default (all of `vision_mix_50`).
 A CLI run that passes `-benchDataset` is therefore unaffected by the UI configuration.
@@ -168,6 +169,38 @@ One JSON object per line in `Documents/benchmark/<track>/cases.jsonl`:
 - `image` is relative to that directory; `null` means a text-only case;
 - images are read as-is (no resizing, no re-encoding) — resolution affects mmproj slicing and first-frame latency;
 - to add a new track, register it in `BenchmarkCaseStore.bundledTracks` and drop the directory into `Resources/Benchmark/`.
+
+### 5.4 Multi-turn cases and the timing convention
+
+A case may carry `messages` instead of `image`/`text` (both forms live in the same `cases.jsonl`):
+
+```json
+{"key": 9002, "messages": [
+  {"role": "system", "text": "You are a menu assistant. Keep answers short."},
+  {"role": "user", "image": "cafe.jpg", "text": "Which drink is the most expensive?"},
+  {"role": "assistant", "text": "The Latte and the Cappuccino."},
+  {"role": "user", "text": "How much is the Espresso?"}
+]}
+```
+
+- Messages are prefilled in order; only the **last** one triggers generation and it must be a `user`;
+- history turns use dedicated engine roles (`user_hist` / `assistant_hist`) that do **not** append an
+  assistant header. Without them a premature `<|im_start|>assistant` (plus an empty `<think>` block on
+  ChatML-MoE models) would be written into the KV cache and the following assistant history would land
+  after the thinking block;
+- an image may only sit on the **first** user message — on ChatML-MoE the image KV write is deferred to
+  that turn's `prefill_text`, so it has to be the same turn;
+- `role: "tool"` is **not supported** (no tool branch in the ChatML template); such a case fails with an
+  explicit error rather than producing a meaningless number.
+
+**Timing convention (B — whole conversation):** `prefill_ms` / `prefill_tokens` accumulate over *all*
+turns, while `decode_ms` covers only the final answer. This matches how MLPerf treats few-shot context:
+it is part of the prompt and is fully counted as prefill. Consequences you must keep in mind:
+
+- TTFT becomes "first message → first token of the last turn", not "question → first token";
+- multi-turn numbers are **not** directly comparable with single-turn tracks — run them separately;
+- each sample also stores `turnWallMs` (per-turn wall-clock prefill time, index = message index), so the
+  "last turn only" and "per-turn" views can be derived afterwards without a second run.
 
 ---
 

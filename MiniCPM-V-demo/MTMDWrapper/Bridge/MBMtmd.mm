@@ -2665,6 +2665,20 @@ int mb_mtmd_prefill_text(mb_mtmd_context * ctx, const char * text_in, const char
                 formatted += "<|im_start|>assistant\n";
             }
         }
+    } else if (role == "user_hist") {
+        // 多轮里的历史 user 轮：与 user 分支唯一区别是不追加 assistant 头。
+        // user 分支假定后面立刻生成，历史轮后面却还接着 assistant / 下一轮 user，
+        // 提前写入 <|im_start|>assistant（chatml_moe 还带空 <think></think>）会把
+        // 真实的 assistant 历史顶到 think 块后面。
+        if (is_chatml_image_deferred(ctx->model_version) && !ctx->pending_image_path.empty()) {
+            formatted += std::string("<|im_start|>user\n") + mtmd_default_marker() + "\n" + text
+                + "<|im_end|>\n";
+        } else {
+            formatted += "<|im_start|>user\n" + text + "<|im_end|>\n";
+        }
+    } else if (role == "assistant_hist") {
+        // 历史 assistant 轮：assistant 分支只写正文（头由前一轮 user 写入），这里要自己补。
+        formatted += "<|im_start|>assistant\n" + text + "<|im_end|>\n";
     } else if (role == "assistant") {
         formatted += text + "<|im_end|>\n";
     } else if (role == "system") {

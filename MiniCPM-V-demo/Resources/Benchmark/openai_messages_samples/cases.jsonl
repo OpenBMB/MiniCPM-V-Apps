@@ -1,0 +1,2 @@
+{"key": 9001, "image": "cat.png", "text": "请用一句话描述图中的动物和它的姿态。"}
+{"key": 9002, "messages": [{"role": "system", "text": "你是一个菜单分析助手，回答尽量简短。"}, {"role": "user", "text": "这张图里最贵的饮品是什么？", "image": "cafe.jpg"}, {"role": "assistant", "text": "图中最贵的是 Latte 和 Cappuccino。"}, {"role": "user", "text": "那 Espresso 多少钱？"}]}
