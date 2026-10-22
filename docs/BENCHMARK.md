@@ -6,6 +6,10 @@
 
 [**中文**](BENCHMARK_zh.md) | English
 
+> ⚠️ **Release builds are recommended.**
+> Debug builds run slower and may fail with unexpected errors. In Xcode: **Product → Scheme → Edit
+> Scheme → Run → Build Configuration = Release**; from the command line: `-configuration Release`.
+
 ---
 
 ## 1. What it is
@@ -35,7 +39,7 @@ One case = **one image (optional) + one prompt**, single turn, no conversation h
 2. From top to bottom:
    - **Dataset** — expanded by default. Each case of the default track (`openai_messages_samples`) has its
      own switch, so cases can be included or skipped individually; the other tracks live under a collapsed
-     **其它数据集** section where a slider picks how many cases to run (`0 … total`, `0` = skip);
+     **Other datasets** section where a slider picks how many cases to run (`0 … total`, `0` = skip);
    - **Output token limit** — default 512. It only caps the length: generation ends early on EOG, so output length may differ across cases;
    - **Repetitions** — default 1. Cross-case variance is usually much larger than across-repetition variance, so "many cases × few repetitions" estimates the population variance more efficiently;
    - **Start / Cancel / Export last result**;
