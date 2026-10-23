@@ -350,6 +350,11 @@ public enum BenchmarkResultStore {
         rootURL().appendingPathComponent("telemetry_\(runId).jsonl")
     }
 
+    /// 人读报告文本。原来显示在界面的输出框里，现在只落盘，便于事后翻看。
+    public static func reportFileURL(_ runId: String) -> URL {
+        rootURL().appendingPathComponent("report_\(runId).txt")
+    }
+
     /// 落盘：一份汇总 JSON + 一份逐条明细 jsonl。
     /// 明细必须单独留 —— 统计口径可以事后换，但原始明细丢了就补不回来。
     public static func save(result: BenchmarkRunResult, samples: [BenchmarkSample]) throws {

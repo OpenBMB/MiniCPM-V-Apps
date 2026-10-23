@@ -537,12 +537,15 @@ import llama
         openBenchmarkIfRequested()
     }
 
-    /// 调试用：`-openBenchmark` 启动参数会在模型加载完成后自动跳到「批量基准测试」页。
+    /// 冷启动后自动跳到「批量基准测试」页（默认行为）。
     ///
-    /// 存在的意义只有一个：**自动化验证界面改动**（`pymobiledevice3` 能截图但点不了屏幕）。
-    /// 不带这个参数时零开销，不进任何产品路径。
+    /// 这一版是测量工具，主界面只是过渡页，所以默认直达；`-noOpenBenchmark` 可关掉，
+    /// 需要停在聊天页时用。等价于帮用户点了右下角那个入口按钮。
     private func openBenchmarkIfRequested() {
-        guard ProcessInfo.processInfo.arguments.contains("-openBenchmark") else { return }
+        let args = ProcessInfo.processInfo.arguments
+        guard !args.contains("-noOpenBenchmark") else { return }
+        // `-bench` 是命令行跑批，界面不用再跳过去；两边同时初始化会互相拖住。
+        guard !args.contains("-bench") else { return }
         guard !didAutoOpenBenchmark else { return }
         didAutoOpenBenchmark = true
 
@@ -550,12 +553,13 @@ import llama
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] timer in
             guard let self = self else { timer.invalidate(); return }
             tries += 1
-            if self.mtmdWrapperExample != nil {
+            // 等模型真正加载完成再跳，否则新页面的初始化会和模型加载抢主线程。
+            if self.mtmdWrapperExample?.multiModelLoadingSuccess == true {
                 timer.invalidate()
                 self.benchmarkEntryTapped()
             } else if tries > 120 {
                 timer.invalidate()
-                print("[UI] -openBenchmark 等待模型超时")
+                print("[UI] 自动进入批量基准页：等待模型超时")
             }
         }
     }

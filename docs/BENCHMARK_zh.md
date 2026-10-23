@@ -6,6 +6,11 @@
 
 [**English**](BENCHMARK.md) | 中文
 
+> ⚠️ **建议使用 Release 构建。**
+> Debug 构建会导致性能下降，并可能出现不确定的报错。
+> Xcode 里：**Product → Scheme → Edit Scheme → Run → Build Configuration 改成 Release**；
+> 命令行：`-configuration Release`。
+
 ---
 
 ## 1. 这是什么

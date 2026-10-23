@@ -62,6 +62,20 @@
         "https://mobile.mlcommons-storage.org/app-resources/datasets/v6_0/tiny33_ifeval.tfrecord"
       ],
       "license": "MLPerf repos Apache-2.0; Tiny-MMLU derives from MMLU (MIT); IFEval from google-research (Apache-2.0)"
+    },
+    "openai_messages_samples": {
+      "cases": 4,
+      "files": [
+        "cases.jsonl",
+        "cat.png",
+        "cafe.jpg"
+      ],
+      "cases_sha256": "701044241e5d735f0e308c9d5f72700b6aecd62e0a26db2c2c5ce706db9c5988",
+      "sources": [
+        "openai_messages_samples/raw_cases.jsonl (9001, downgraded to single-turn)"
+      ],
+      "license": "Sample image supplied with the dataset; verify licensing before redistributing.",
+      "note": "9001 single-turn; 9002 multi-turn; 9003 tools + single turn; 9004 tool round-trip (tool_calls / tool results pre-rendered per the checkpoint template)."
     }
   }
 }

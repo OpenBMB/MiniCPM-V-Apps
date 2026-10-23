@@ -124,6 +124,60 @@ public final class BenchmarkRunner: ObservableObject {
 
     private var isCancelled = false
 
+    /// 上一条 case 是否带图。用于在「有图 ↔ 无图」切换时重载模型，见 `runOne` 里的说明。
+    private var lastCaseHadImage: Bool?
+
+    /// 实时状态日志，UI 的输出框直接显示它（只在内存里滚动，跑完落盘的是结果 JSON + 报告 txt）。
+    @Published public private(set) var liveLog: [String] = []
+
+    private static let liveLogLimit = 400
+
+    private static let clockFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    /// 跑完把关键结论也打进日志：每条 case 的平均 prefill / decode 速率，以及整体平均。
+    /// 目的是「看一眼日志就知道结果」，不必再去翻报告文件。
+    private func appendSummary(samples: [BenchmarkSample]) {
+        let valid = samples.filter { $0.error == nil && !$0.isWarmup }
+        guard !valid.isEmpty else { return }
+
+        appendLog(BML.t("—— Summary ——", "—— 结果摘要 ——"))
+        var allPrefill: [Double] = []
+        var allDecode: [Double] = []
+        for key in Array(Set(valid.map(\.caseKey))).sorted() {
+            let sub = valid.filter { $0.caseKey == key }
+            let prefill = sub.compactMap(\.prefillTokensPerSec)
+            let decode = sub.compactMap(\.decodeTokensPerSec)
+            allPrefill += prefill
+            allDecode += decode
+            guard let p = Self.mean(prefill), let d = Self.mean(decode) else { continue }
+            appendLog("#\(key) n=\(sub.count) · prefill \(Self.fmt(p, 1)) tok/s"
+                      + " · decode \(Self.fmt(d, 2)) tok/s")
+        }
+        if let p = Self.mean(allPrefill), let d = Self.mean(allDecode) {
+            appendLog(BML.t("Overall", "整体") + " n=\(valid.count) · "
+                      + "prefill \(Self.fmt(p, 1)) tok/s · decode \(Self.fmt(d, 2)) tok/s")
+        }
+    }
+
+    private static func mean(_ v: [Double]) -> Double? {
+        v.isEmpty ? nil : (v.reduce(0, +) / Double(v.count))
+    }
+
+    private static func fmt(_ v: Double, _ digits: Int) -> String {
+        String(format: "%.\(digits)f", v)
+    }
+
+    private func appendLog(_ line: String) {
+        liveLog.append("[\(Self.clockFormatter.string(from: Date()))] \(line)")
+        if liveLog.count > Self.liveLogLimit {
+            liveLog.removeFirst(liveLog.count - Self.liveLogLimit)
+        }
+    }
+
     // MARK: - 主入口
 
     /// 串行跑完整批。
@@ -141,6 +195,12 @@ public final class BenchmarkRunner: ObservableObject {
             fail("模型未加载完成")
             return
         }
+
+        // 每次开跑都从「没有上一条」开始，避免沿用上一次运行的图片状态而多触发一次重载。
+        lastCaseHadImage = nil
+        liveLog.removeAll()
+        appendLog(BML.t("Start: \(cases.count) case(s) × \(config.repetitions) rep(s) · max \(config.decodeTokenLimit) output token",
+                        "开始：\(cases.count) 条 × \(config.repetitions) 轮｜输出上限 \(config.decodeTokenLimit) token"))
 
         // 采样随机性是 MLPerf 明文不允许的非确定性之一
         // （`mobile_inference_rules.adoc:104-117` 只认浮点序 / 输入遍历 / 舍入）。
@@ -222,7 +282,8 @@ public final class BenchmarkRunner: ObservableObject {
         }
 
         if config.warmupEnabled, let wc = warmupCase {
-            progressText = "预热中（固定图 + \(BenchmarkRunConfig.warmupTokens) token）…"
+            progressText = BML.t("Warmup (fixed image + \(BenchmarkRunConfig.warmupTokens) token)…",
+                              "预热中（固定图 + \(BenchmarkRunConfig.warmupTokens) token）…")
             let savedLimit = example.mtmdWrapper.decodeTokenLimit
             example.mtmdWrapper.decodeTokenLimit = BenchmarkRunConfig.warmupTokens
             let warmCase = BenchmarkCase(key: -1,
@@ -248,7 +309,8 @@ public final class BenchmarkRunner: ObservableObject {
         outerLoop: for pass in 0..<config.repetitions {
             if pass > 0, config.cooldownSec > 0 {
                 let waited = Int(Date().timeIntervalSince(wallStart))
-                progressText = "第 \(pass + 1)/\(config.repetitions) 轮前冷却 \(Int(config.cooldownSec))s"
+                progressText = BML.t("Cooldown \(Int(config.cooldownSec))s before pass \(pass + 1)/\(config.repetitions)",
+                              "第 \(pass + 1)/\(config.repetitions) 轮前冷却 \(Int(config.cooldownSec))s")
                     + "（已跑 \(waited)s）"
                 try? await Task.sleep(nanoseconds: UInt64(config.cooldownSec * 1_000_000_000))
             }
@@ -267,7 +329,8 @@ public final class BenchmarkRunner: ObservableObject {
                                           example: example)
                 samples.append(sample)
                 doneCount += 1
-                progressText = "第 \(pass + 1)/\(config.repetitions) 轮"
+                progressText = BML.t("Pass \(pass + 1)/\(config.repetitions)",
+                              "第 \(pass + 1)/\(config.repetitions) 轮")
                     + " · #\(c.key)（第 \(pos + 1) 位）· \(doneCount)/\(totalCount)"
             }
         }
@@ -276,7 +339,8 @@ public final class BenchmarkRunner: ObservableObject {
 
         if isCancelled {
             phase = .cancelled
-            progressText = "已取消（\(doneCount)/\(totalCount)）"
+            progressText = BML.t("Cancelled (\(doneCount)/\(totalCount))",
+                              "已取消（\(doneCount)/\(totalCount)）")
             return
         }
 
@@ -287,9 +351,16 @@ public final class BenchmarkRunner: ObservableObject {
                                                   temperature: effectiveTemp,
                                                   measuredDurationSec: wallSec)
             try BenchmarkResultStore.save(result: result, samples: samples)
+            // 报告不再显示在界面输出框里（那里改成实时状态），落成 txt 方便事后查看。
+            let reportURL = BenchmarkResultStore.reportFileURL(runId)
+            try? BenchmarkReport.text(result).write(to: reportURL, atomically: true, encoding: .utf8)
             lastResult = result
             phase = .finished
-            progressText = "完成：\(doneCount) 条（有效 \(result.stats.sampleCount) 条）"
+            progressText = BML.t("Done: \(doneCount) sample(s) (\(result.stats.sampleCount) counted)",
+                                 "完成：\(doneCount) 条（有效 \(result.stats.sampleCount) 条）")
+            appendLog(BML.t("Done: report written to ", "完成：报告已写入 ")
+                      + reportURL.lastPathComponent)
+            appendSummary(samples: samples)
         } catch {
             fail("结果落盘失败：\(error.localizedDescription)")
         }
@@ -318,6 +389,21 @@ public final class BenchmarkRunner: ObservableObject {
                   runId: String,
                         example: MTMDWrapperExample) async -> BenchmarkSample {
 
+        // 有图 ↔ 无图切换时整体重载模型。
+        //
+        // 文本 case 会把自适应 ubatch 降到 128；之后再来图片 case 要抬回 1024，重建 lctx 期间
+        // 新旧 context 并存（实测 Metal 瞬时 +869 MiB），本机 7.45 GB 撑不住直接 jetsam。
+        // 重载让 ub 在 init 时一次到位。放在计时之前，重载耗时不进单条 case 的墙钟。
+        let caseHasImage = c.turns.contains { $0.image != nil }
+        if let prev = lastCaseHadImage, prev != caseHasImage {
+            let ok = await example.reloadForCaseSwitch()
+            if !ok { NSLog("%@", "[BENCH] 切换重载失败，继续按当前 context 执行") }
+            // reset + initialize 会把这两项复位，重载后必须重新设置。
+            example.mtmdWrapper.decodeTokenLimit = config.decodeTokenLimit
+            example.mtmdWrapper.stopAtEOG = config.stopAtEOG
+        }
+        lastCaseHadImage = caseHasImage
+
         let thermalBefore = Self.thermalString()
         let batteryBefore = Self.batteryLevel()
         let batteryStateBefore = Self.batteryStateString()
@@ -330,43 +416,104 @@ public final class BenchmarkRunner: ObservableObject {
         if config.resetKVBeforeCase {
             example.clearKVCacheForNewTurn()
         }
+        appendLog("#\(c.key) \(c.displayKind) — \(BML.t("start", "开始"))")
 
-        // ② 图
+        // ②③ 逐轮 prefill。单轮 case 被合成为一条 user 消息，两种形态走同一条路径。
         //
-        // 预热单独计时：它不只是"重建 ubatch"，还会真从 SSD 读专家做预热。
-        // 首轮实测 wall-clock 有约 3.4 s/条对不上账，怀疑主要就在这里 ——
-        // 引擎侧没有任何计时覆盖它（perf_image_ms 只覆盖 eager 编码）。
+        // 口径 B：各轮 prefill 由引擎侧累加、decode 只算末轮，所以 prefill_ms /
+        // prefill_tokens 是「整段会话」口径，见 docs/BENCHMARK.md §5.4。
+        let turns = c.turns
+        if turns.last?.role != .user {
+            // 以 assistant 收尾的 case 不会写入 assistant 头，等于一段没有起点的续写，测了没意义。
+            errorMsg = "末轮必须是 user（case \(c.key)）"
+        }
         var prewarmMs: Double = 0
-        if let image = c.image {
-            let path = BenchmarkCaseStore.imageURL(image).path
-            let ok = await example.addImageInBackground(path)
-            if !ok {
-                errorMsg = "图片 prefill 失败：\(image)"
-            } else if config.prewarmAfterImage {
-                let t = Date()
-                await example.prewarmAfterImageInBackground()
-                prewarmMs = Date().timeIntervalSince(t) * 1000.0
+        var turnWallMs: [Double] = []
+        var imageTurns = 0
+        // 分阶段能量：无图时它就是「KV 清空后」的基线
+        var energyAfterImage = BenchmarkEnergyProbe.take()
+
+        appendLog("#\(c.key) " + BML.t("prefill (\(turns.count) turn(s))", "prefill 中（\(turns.count) 轮）"))
+
+        // 工具定义必须作为第一个 system 段写入（n_past == 0），否则模型看不到函数列表。
+        // 它不计入 turnWallMs（该数组与 messages 一一对应），耗时已并入引擎侧的 prefill 累计值。
+        if let toolsJSON = c.toolsJSON, errorMsg == nil {
+            if turns.first?.role == .system {
+                errorMsg = "tools 与独立 system 消息同时出现暂不支持（case \(c.key)）"
+            } else {
+                let ok = await example.addTextInBackground(toolsJSON, role: "tools")
+                if !ok { errorMsg = "tools 段 prefill 失败" }
             }
         }
 
-        // 分阶段能量：图片处理 + 专家预热这一段结束
-        let energyAfterImage = BenchmarkEnergyProbe.take()
+        for (index, turn) in turns.enumerated() where errorMsg == nil {
+            // 预热单独计时：它不只是"重建 ubatch"，还会真从 SSD 读专家做预热。
+            // 首轮实测 wall-clock 有约 3.4 s/条对不上账，怀疑主要就在这里 ——
+            // 引擎侧没有任何计时覆盖它（perf_image_ms 只覆盖 eager 编码）。
+            if let image = turn.image {
+                imageTurns += 1
+                if imageTurns > 1 {
+                    // 图必须紧跟在它所属的 user 轮之前（chatml_moe 下图片 KV 是延迟写入的），
+                    // 多条消息各带一张会破坏这个对应关系。
+                    errorMsg = "每条 case 只支持一张图（case \(c.key)）"
+                    break
+                }
+                appendLog("#\(c.key) " + BML.t("image preprocess (\(image))", "图片预处理（\(image)）"))
+                let tImg = Date()
+                let path = BenchmarkCaseStore.imageURL(image).path
+                let ok = await example.addImageInBackground(path)
+                if !ok {
+                    errorMsg = "图片 prefill 失败：\(image)"
+                    break
+                }
+                if config.prewarmAfterImage {
+                    let t = Date()
+                    await example.prewarmAfterImageInBackground()
+                    prewarmMs = Date().timeIntervalSince(t) * 1000.0
+                }
+                // 分阶段能量：图片处理 + 专家预热这一段结束
+                energyAfterImage = BenchmarkEnergyProbe.take()
 
-        // ③ 文本
-        if errorMsg == nil {
-            let ok = await example.addTextInBackground(c.text)
-            if !ok { errorMsg = "文本 prefill 失败" }
+                let imgMs = Int(Date().timeIntervalSince(tImg) * 1000)
+                let warm = prewarmMs > 0
+                    ? BML.t(" (incl. prewarm \(Int(prewarmMs)) ms)", "（其中预热 \(Int(prewarmMs)) ms）")
+                    : ""
+                appendLog("#\(c.key) "
+                          + BML.t("image preprocess done \(imgMs) ms", "图片预处理完成 \(imgMs) ms") + warm)
+            }
+
+            guard let role = turn.role.prefillRole(isLast: index == turns.count - 1) else {
+                errorMsg = "tool 消息需在数据侧渲染成 user 的 <tool_response> 段（case \(c.key)）"
+                continue
+            }
+
+            let t = Date()
+            let ok = await example.addTextInBackground(turn.text, role: role)
+            turnWallMs.append(Date().timeIntervalSince(t) * 1000.0)
+            if !ok { errorMsg = "文本 prefill 失败（role=\(role)）" }
         }
 
         // 分阶段能量：prefill 结束（此时还没开始解码）
         let energyAfterPrefill = BenchmarkEnergyProbe.take()
+        if errorMsg == nil {
+            appendLog("#\(c.key) " + BML.t("prefill done, decoding", "prefill 完成，开始 decode"))
+        }
 
         // ④ 生成（固定步数，不等 EOG）
         if errorMsg == nil {
             await example.startGeneration()
-            let settled = await waitForSettled(example: example, timeoutSec: Self.perCaseTimeoutSec)
+            let settled = await waitForSettled(example: example,
+                                               timeoutSec: Self.perCaseTimeoutSec,
+                                               caseKey: c.key)
             if !settled { errorMsg = "生成超时（>\(Int(Self.perCaseTimeoutSec))s）" }
         }
+
+        // 生成文本留档（截断），并给带 tools 的 case 打一个「是否真的调用了函数」的标记。
+        let output = example.mtmdWrapper.fullOutput
+        let outputText = output.count > Self.maxOutputChars
+            ? String(output.prefix(Self.maxOutputChars))
+            : output
+        let toolCallDetected: Bool? = c.toolsJSON == nil ? nil : output.contains("<tool_call>")
 
         let wallMs = Date().timeIntervalSince(t0) * 1000.0
         let p = example.mtmdWrapper.lastPerf
@@ -388,13 +535,21 @@ public final class BenchmarkRunner: ObservableObject {
         NSLog("%@", BenchmarkEnergyProbe.debugPhaseLine("整条case",
                                                         energyBefore, energyAfter))
 
+        if let e = errorMsg {
+            appendLog("#\(c.key) " + BML.t("failed: ", "失败：") + e)
+        } else {
+            appendLog("#\(c.key) " + BML.t("done: ", "完成：")
+                      + "prefill \(Int(p.prefill_tokens)) tok / \(Int(p.prefill_ms)) ms"
+                      + " · decode \(Int(p.decode_tokens)) tok / \(Int(p.decode_ms)) ms")
+        }
+
         return BenchmarkSample(
             runId: runId,
             repetition: repetition,
             isWarmup: isWarmup,
             orderInPass: orderInPass,
             caseKey: c.key,
-            promptUTF8Length: c.text.utf8.count,
+            promptUTF8Length: turns.reduce(0) { $0 + $1.text.utf8.count },
             startISO: Self.iso8601(t0),
             wallMs: wallMs,
             prefillTokens: Int(p.prefill_tokens),
@@ -414,20 +569,29 @@ public final class BenchmarkRunner: ObservableObject {
             batteryStateBefore: batteryStateBefore,
             batteryStateAfter: Self.batteryStateString(),
             residentMemoryMiB: Self.residentMemoryMiB(),
-            error: errorMsg
+            error: errorMsg,
+            turnWallMs: turnWallMs,
+            outputText: outputText,
+            toolCallDetected: toolCallDetected
         )
     }
 
     /// 单条 case 的超时上限（秒）。给足，正常一条远小于这个值。
     private static let perCaseTimeoutSec: Double = 180
 
+    /// 结果文件里保留的输出文本上限（字符）。长回答只截断，不影响指标。
+    private static let maxOutputChars = 2000
+
     /// 等生成进入终态。
     ///
     /// 用轮询而不是 Combine 的 AsyncPublisher：`startGeneration()` 是「建 Task 就返回」，
     /// 而 Publisher.values 会把进入时的当前值先吐一次（此时可能已是上一轮的 .completed），
     /// 容易误判成"已结束"。轮询虽然笨，但没有这个坑，20 ms 的间隔相对单条秒级耗时可忽略。
-    private func waitForSettled(example: MTMDWrapperExample, timeoutSec: Double) async -> Bool {
+    private func waitForSettled(example: MTMDWrapperExample,
+                                timeoutSec: Double,
+                                caseKey: Int) async -> Bool {
         let deadline = Date().addingTimeInterval(timeoutSec)
+        var lastTick = Date.distantPast
         while Date() < deadline {
             switch example.mtmdWrapper.generationState {
             case .completed, .cancelled:
@@ -438,6 +602,16 @@ public final class BenchmarkRunner: ObservableObject {
                 break
             }
             if isCancelled { return false }
+            // 每 3 秒把实时 decode 速度抄进日志（速率取自引擎侧的窗口测速，
+            // 文案自己拼，这样跟着界面语言走）。
+            if Date().timeIntervalSince(lastTick) >= 3 {
+                lastTick = Date()
+                if let rate = example.mtmdWrapper.liveDecodeRate {
+                    appendLog("#\(caseKey) "
+                              + BML.t("decode \(Self.fmt(rate, 2)) tok/s",
+                                      "实时解码速度 \(Self.fmt(rate, 2)) tok/s"))
+                }
+            }
             try? await Task.sleep(nanoseconds: 20_000_000) // 20 ms
         }
         return false
@@ -447,6 +621,7 @@ public final class BenchmarkRunner: ObservableObject {
         failureMessage = msg
         phase = .failed
         progressText = msg
+        appendLog("失败：\(msg)")
     }
 
     // MARK: - 环境采样

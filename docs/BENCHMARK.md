@@ -6,6 +6,10 @@
 
 [**中文**](BENCHMARK_zh.md) | English
 
+> ⚠️ **Release builds are recommended.**
+> Debug builds run slower and may fail with unexpected errors. In Xcode: **Product → Scheme → Edit
+> Scheme → Run → Build Configuration = Release**; from the command line: `-configuration Release`.
+
 ---
 
 ## 1. What it is
@@ -29,16 +33,18 @@ One case = **one image (optional) + one prompt**, single turn, no conversation h
 
 ### 2.1 Run from the app UI (recommended)
 
-1. Launch the app and wait for the model to finish loading.
-2. Tap the circular button at the bottom-right of the home screen to open **Batch Benchmark**
-   (its accessibility label is the screen title; the same entry exists in Settings).
-3. From top to bottom:
-   - **Dataset** — tap the header to expand; each dataset has a slider choosing how many cases to run this round (`0 … total`, `0` = skip);
+1. Launch the app. It goes to the home screen and then **opens Batch Benchmark by itself** once the model
+   has loaded — the same as tapping the circular button at the bottom-right (`-noOpenBenchmark` opts out).
+   The same page is also reachable from Settings.
+2. From top to bottom:
+   - **Dataset** — expanded by default. Each case of the default track (`openai_messages_samples`) has its
+     own switch, so cases can be included or skipped individually; the other tracks live under a collapsed
+     **Other datasets** section where a slider picks how many cases to run (`0 … total`, `0` = skip);
    - **Output token limit** — default 512. It only caps the length: generation ends early on EOG, so output length may differ across cases;
    - **Repetitions** — default 1. Cross-case variance is usually much larger than across-repetition variance, so "many cases × few repetitions" estimates the population variance more efficiently;
    - **Start / Cancel / Export last result**;
    - **Progress & statistics** — live progress plus the summary table.
-4. When finished, tap "Export last result" and grab the JSON via the share sheet (or copy it out of Files, see §6).
+3. When finished, tap "Export last result" and grab the JSON via the share sheet (or copy it out of Files, see §6).
 
 > If an orange temperature warning appears, `MTMDParams.temperature != 0` — results are not reproducible then. Set sampling temperature back to 0 first.
 
@@ -132,14 +138,15 @@ xcrun devicectl device copy from --device $UDID \
 
 ## 5. Datasets
 
-### 5.1 Two bundled tracks
+### 5.1 Three bundled tracks
 
 | Track | Cases | Content | key range |
 |---|---:|---|---|
 | **`vision_mix_50`** (default) | 50 | Image recognition / description / short-answer mix (25 reviewed real cases + 25 synthetic short-answer cases) | 3001–3050 |
 | `mlperf_llm` | 133 | MLPerf Mobile v6.0: Tiny-MMLU (100) + Tiny-IFEval-33 (33), **text only** | 1001–1100 / 2001–2033 |
+| `openai_messages_samples` | 4 | Message-style samples: 9001 (single-turn image+text), 9002 (**multi-turn**), 9003 (**`tools`** + single turn), 9004 (**tool round-trip**: user → assistant tool_calls → tool results → answer) | 9001–9004 |
 
-The two key ranges do not overlap, so both tracks can run in one block (results are distinguished by `key`).
+The key ranges do not overlap, so tracks can run in one block (results are distinguished by `key`).
 
 Selection precedence: CLI `-benchDataset` > plan saved from the UI sliders > default (all of `vision_mix_50`).
 A CLI run that passes `-benchDataset` is therefore unaffected by the UI configuration.
@@ -168,6 +175,77 @@ One JSON object per line in `Documents/benchmark/<track>/cases.jsonl`:
 - `image` is relative to that directory; `null` means a text-only case;
 - images are read as-is (no resizing, no re-encoding) — resolution affects mmproj slicing and first-frame latency;
 - to add a new track, register it in `BenchmarkCaseStore.bundledTracks` and drop the directory into `Resources/Benchmark/`.
+
+### 5.4 Multi-turn cases and the timing convention
+
+A case may carry `messages` instead of `image`/`text` (both forms live in the same `cases.jsonl`):
+
+```json
+{"key": 9002, "messages": [
+  {"role": "system", "text": "You are a menu assistant. Keep answers short."},
+  {"role": "user", "image": "cafe.jpg", "text": "Which drink is the most expensive?"},
+  {"role": "assistant", "text": "The Latte and the Cappuccino."},
+  {"role": "user", "text": "How much is the Espresso?"}
+]}
+```
+
+- Messages are prefilled in order; only the **last** one triggers generation and it must be a `user`;
+- history turns use dedicated engine roles (`user_hist` / `assistant_hist`) that do **not** append an
+  assistant header. Without them a premature `<|im_start|>assistant` (plus an empty `<think>` block on
+  ChatML-MoE models) would be written into the KV cache and the following assistant history would land
+  after the thinking block;
+- an image may only sit on the **first** user message — on ChatML-MoE the image KV write is deferred to
+  that turn's `prefill_text`, so it has to be the same turn;
+- `role: "tool"` is **not supported** (no tool branch in the ChatML template); such a case fails with an
+  explicit error rather than producing a meaningless number.
+
+A case may also declare `tools` (OpenAI-style array). It is rendered into a leading `system` block exactly
+as the checkpoint's ChatML template does — `# Tools` … `<tools>` … `</tools>` … `<IMPORTANT>` — and must
+be the first thing prefilled:
+
+```json
+{"key": 9003,
+ "tools": [{"type": "function", "function": {"name": "get_weather", "description": "…", "parameters": {…}}}],
+ "messages": [{"role": "user", "text": "帮我查一下北京现在的天气。"}]}
+```
+
+- the tool array is serialized with sorted keys and no extra whitespace — the style is fixed, because a
+  different spelling changes the token count and makes runs incomparable;
+- `tools` combined with an explicit `system` message is not supported yet (the template merges the two;
+  no current case needs it);
+- tool output is **not** parsed or validated: the harness measures the token sequence, not whether the
+  emitted function name was correct.
+
+**Tool round-trip (9004)** — assistant `tool_calls` and `tool` results are **pre-rendered in the data**,
+not at runtime, because the template merges them in ways per-message prefill cannot reproduce:
+
+```
+assistant.tool_calls  →  <tool_call>\n<function=NAME>\n<parameter=K>\nV\n</parameter>\n</function>\n</tool_call>
+                         (multiple calls joined with "\n", prefixed by "\n\n" when the message has content)
+consecutive tool msgs →  ONE user turn: <tool_response>\n{c1}\n</tool_response>\n<tool_response>\n{c2}\n</tool_response>
+```
+
+Consequences: `role: "tool"` never appears in `cases.jsonl` (the runner rejects it), and because the merged
+tool turn is a plain `user` message, the model answers right after it — no special "prefill-only" mode.
+The assistant turn needs no runtime change either: `assistant_hist` already emits
+`<|im_start|>assistant\n<think>\n\n</think>\n\n{text}<|im_end|>`, which is exactly what a pre-rendered
+`tool_calls` payload builds on.
+
+**Mixing image and text cases:** when consecutive cases differ in "has image", the runner reloads the model
+before the next case (`MTMDWrapper.reloadModel()`, excluded from the per-case wall clock). Text cases shrink
+the adaptive ubatch to 128; going back to an image case would otherwise grow it in place to 1024, and during
+that rebuild the old and new contexts coexist (+869 MiB of Metal on device) — enough to trigger jetsam.
+The reload lets the ubatch be right at init. Cost: one model load per switch, so a mixed track runs slower
+than a single-kind one.
+
+**Timing convention (B — whole conversation):** `prefill_ms` / `prefill_tokens` accumulate over *all*
+turns, while `decode_ms` covers only the final answer. This matches how MLPerf treats few-shot context:
+it is part of the prompt and is fully counted as prefill. Consequences you must keep in mind:
+
+- TTFT becomes "first message → first token of the last turn", not "question → first token";
+- multi-turn numbers are **not** directly comparable with single-turn tracks — run them separately;
+- each sample also stores `turnWallMs` (per-turn wall-clock prefill time, index = message index), so the
+  "last turn only" and "per-turn" views can be derived afterwards without a second run.
 
 ---
 

@@ -18,7 +18,178 @@
 
 import Foundation
 
+/// 批量基准测试页的语言（只影响这一页和它产出的日志，不改动 App 其它部分）。
+///
+/// 默认 **英文**：重装后本地偏好为空，按 `.en` 处理 —— 测量结果要给外部看，
+/// 默认语言不应该是中文。切换后界面会整体重建，不用重启。
+public enum BenchmarkLocale: String, CaseIterable, Identifiable {
+    case en
+    case zh
+
+    public var id: String { rawValue }
+
+    /// 切换器上显示的名字（用本语言写，不需要翻译）。
+    public var displayName: String {
+        switch self {
+        case .en: return "EN"
+        case .zh: return "中文"
+        }
+    }
+}
+
+public enum BML {
+
+    private static let defaultsKey = "bench_language"
+
+    /// 当前语言。没存过就用英文。
+    public static var language: BenchmarkLocale {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: defaultsKey),
+                  let v = BenchmarkLocale(rawValue: raw) else { return .en }
+            return v
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey) }
+    }
+
+    /// 取文案：`BML.t("English", "中文")`。
+    public static func t(_ en: String, _ zh: String) -> String {
+        language == .zh ? zh : en
+    }
+}
+
+/// 通用 JSON 值，用于承载 `cases.jsonl` 里的 `tools` 字段。
+///
+/// 只做「原样搬运 + 稳定序列化」：C 层需要的是一段 JSON 原文，塞进 `# Tools` 段，
+/// 所以这里不解释任何语义。用 enum 而不是 `[String: Any]`，是因为 `Any` 不能 Codable，
+/// 而数据集是逐行解码的。
+public enum BenchmarkJSON: Codable, Equatable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+    case array([BenchmarkJSON])
+    case object([String: BenchmarkJSON])
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() {
+            self = .null
+        } else if let v = try? c.decode(Bool.self) {
+            self = .bool(v)
+        } else if let v = try? c.decode(Double.self) {
+            self = .number(v)
+        } else if let v = try? c.decode(String.self) {
+            self = .string(v)
+        } else if let v = try? c.decode([BenchmarkJSON].self) {
+            self = .array(v)
+        } else {
+            self = .object(try c.decode([String: BenchmarkJSON].self))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .string(let v): try c.encode(v)
+        case .number(let v): try c.encode(v)
+        case .bool(let v): try c.encode(v)
+        case .null: try c.encodeNil()
+        case .array(let v): try c.encode(v)
+        case .object(let v): try c.encode(v)
+        }
+    }
+
+    /// 稳定序列化：对象键按字典序、无多余空格、非 ASCII 原样输出。
+    ///
+    /// 风格必须固定 —— 同样的工具定义换个写法，token 数就变了，跨版本的数字就不可比。
+    var jsonText: String {
+        switch self {
+        case .string(let s):
+            var out = "\""
+            for ch in s.unicodeScalars {
+                switch ch {
+                case "\"": out += "\\\""
+                case "\\": out += "\\\\"
+                case "\n": out += "\\n"
+                case "\r": out += "\\r"
+                case "\t": out += "\\t"
+                default:
+                    if ch.value < 0x20 {
+                        out += String(format: "\\u%04x", ch.value)
+                    } else {
+                        out.unicodeScalars.append(ch)
+                    }
+                }
+            }
+            return out + "\""
+        case .number(let v):
+            // 整数值不输出 ".0"：工具定义里的数字基本都是整数，带 ".0" 会和常见写法不一致。
+            return v == v.rounded() && abs(v) < 1e15
+                ? String(Int64(v))
+                : String(v)
+        case .bool(let v): return v ? "true" : "false"
+        case .null: return "null"
+        case .array(let v): return "[" + v.map(\.jsonText).joined(separator: ",") + "]"
+        case .object(let v):
+            let body = v.keys.sorted()
+                .map { "\"\($0)\":" + (v[$0]?.jsonText ?? "null") }
+                .joined(separator: ",")
+            return "{" + body + "}"
+        }
+    }
+}
+
+/// 多轮 case 里的一条消息。
+///
+/// 只保留批量测试需要的三个字段：`role` / `text` / `image?`，不用 OpenAI 那种
+/// `content: string | [{type, ...}]` 的多态写法 —— 基准测试只需要「一条消息 = 一段文本 + 至多一张图」。
+public struct BenchmarkMessage: Codable, Equatable {
+
+    public enum Role: String, Codable {
+        case system
+        case user
+        case assistant
+        /// OpenAI 的 tool 结果消息。**不要直接写进数据集**：模板会把连续多条 tool 结果合并成一个
+        /// user 段，逐条 prefill 会多出 `<|im_start|>`/`<|im_end|>`；这类消息在数据侧渲染成 user 文本。
+        case tool
+    }
+
+    public let role: Role
+
+    public let text: String
+
+    /// 图片文件名，语义同 `BenchmarkCase.image`；只允许出现在第一条 user 消息上。
+    public let image: String?
+
+    public init(role: Role, text: String, image: String? = nil) {
+        self.role = role
+        self.text = text
+        self.image = image
+    }
+}
+
+extension BenchmarkMessage.Role {
+
+    /// 映射到 C 层 `prefill_text` 认的 role 字符串；`tool` 没有对应模板，返回 nil。
+    ///
+    /// 只有末轮 user 用 `user`（它会写入 assistant 头并触发生成），其余 user 走 `user_hist`；
+    /// assistant 历史走 `assistant_hist`（自带 assistant 头）。两者都不能复用 `user` / `assistant`，
+    /// 原因见 `MBMtmd.mm` 里这两个分支的注释。
+    func prefillRole(isLast: Bool) -> String? {
+        switch self {
+        case .system:    return "system"
+        case .assistant: return "assistant_hist"
+        case .user:      return isLast ? "user" : "user_hist"
+        case .tool:      return nil
+        }
+    }
+}
+
 /// 一条测试 case。
+///
+/// 两种形态共存于同一份 `cases.jsonl`：
+/// - 单轮：`{key, image?, text}` —— 现有 track 全是这种；
+/// - 多轮：`{key, messages: [{role, text, image?}, …]}` —— 见 `openai_messages_samples`。
 public struct BenchmarkCase: Codable, Identifiable, Equatable {
 
     /// 主键，对应 MLPerf 数据集里的 `key`。
@@ -27,19 +198,75 @@ public struct BenchmarkCase: Codable, Identifiable, Equatable {
     /// 图片文件名，相对 `BenchmarkCaseStore.rootURL`；纯文本 case 可为 nil。
     public let image: String?
 
-    /// 提问文本。
+    /// 提问文本（单轮 case）。
     ///
     /// 批量测试要求**每条 case 的输出长度可比**，所以文本必须固定长度
     /// （沿用桌面侧「各自恰好 2 token」的口径）；文本长度不同会让
     /// prefill 的 token 数不同，进而让 TTFT 混进无关变量。
+    /// 多轮 case 这一项可为空串，正文放在 `messages` 里。
     public let text: String
+
+    /// 多轮 case 的消息序列；为空表示按单轮（`image` + `text`）执行。
+    public let messages: [BenchmarkMessage]?
+
+    /// 可供模型调用的工具定义（OpenAI `tools` 数组，原样保存）。
+    ///
+    /// 只在批量测试里用：runner 会把它渲染成一个 system 段喂给模型。
+    public let tools: [BenchmarkJSON]?
 
     public var id: Int { key }
 
-    public init(key: Int, image: String?, text: String) {
+    /// 按顺序要 prefill 的消息。单轮 case 合成为一条 user 消息，
+    /// runner 对单轮 / 多轮只走一条代码路径。
+    public var turns: [BenchmarkMessage] {
+        if let msgs = messages, !msgs.isEmpty { return msgs }
+        return [BenchmarkMessage(role: .user, text: text, image: image)]
+    }
+
+    /// 渲染给 C 层 `role="tools"` 的 JSON 原文；没有工具定义时为 nil。
+    public var toolsJSON: String? {
+        guard let tools, !tools.isEmpty else { return nil }
+        return BenchmarkJSON.array(tools).jsonText
+    }
+
+    /// UI 里一行标题用的形态描述。按内容推断，不额外维护文案。
+    public var displayKind: String {
+        if tools?.isEmpty == false {
+            let roundTrip = turns.contains { $0.role == .assistant && $0.text.contains("<tool_call>") }
+            return roundTrip ? BML.t("tool round-trip", "工具往返")
+                             : BML.t("tool call", "工具调用")
+        }
+        if turns.count > 1 { return BML.t("multi-turn (\(turns.count))", "多轮（\(turns.count) 轮）") }
+        return turns.contains { $0.image != nil }
+            ? BML.t("single-turn (image+text)", "单轮图文")
+            : BML.t("single-turn (text)", "单轮文本")
+    }
+
+    public init(key: Int,
+                image: String?,
+                text: String,
+                messages: [BenchmarkMessage]? = nil,
+                tools: [BenchmarkJSON]? = nil) {
         self.key = key
         self.image = image
         self.text = text
+        self.messages = messages
+        self.tools = tools
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case key, image, text, messages, tools
+    }
+
+    /// 自定义解码：多轮 case 不写 `text`，所以要给缺省值。
+    /// 这样一份 `cases.jsonl` 能同时容纳两种形态，不用维护两套解析器。
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key = try c.decode(Int.self, forKey: .key)
+        image = try c.decodeIfPresent(String.self, forKey: .image)
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        messages = try c.decodeIfPresent([BenchmarkMessage].self, forKey: .messages)
+        tools = try c.decodeIfPresent([BenchmarkJSON].self, forKey: .tools)
     }
 }
 
@@ -61,10 +288,25 @@ public enum BenchmarkCaseSource: String {
 public enum BenchmarkCaseStore {
 
     /// 内置有哪些 track（顺序即 UI 里的展示顺序）。
-    public static let bundledTracks = ["vision_mix_50", "mlperf_llm"]
+    public static let bundledTracks = ["vision_mix_50", "mlperf_llm", "openai_messages_samples"]
 
-    /// 默认 track。
-    public static let defaultTrack = "vision_mix_50"
+    /// 默认 track。界面默认展示、默认启用它。
+    public static let defaultTrack = "openai_messages_samples"
+
+    /// 每条 case 的开关（`"key" → 是否启用`）。没记录过的 key 视为启用，
+    /// 这样新增数据集不用先写一遍默认值。
+    public static let caseEnabledDefaultsKey = "bench_case_enabled"
+
+    public static func isCaseEnabled(_ key: Int) -> Bool {
+        let map = UserDefaults.standard.dictionary(forKey: caseEnabledDefaultsKey) as? [String: Bool]
+        return map?[String(key)] ?? true
+    }
+
+    public static func setCaseEnabled(_ key: Int, _ enabled: Bool) {
+        var map = (UserDefaults.standard.dictionary(forKey: caseEnabledDefaultsKey) as? [String: Bool]) ?? [:]
+        map[String(key)] = enabled
+        UserDefaults.standard.set(map, forKey: caseEnabledDefaultsKey)
+    }
 
     /// 多选时存哪个 key（UI 里勾选的 track 列表）。
     public static let tracksDefaultsKey = "bench_dataset_tracks"
@@ -95,10 +337,22 @@ public enum BenchmarkCaseStore {
         return out
     }
 
+    /// 一次性迁移：旧版本把条数存在 plan 里（`vision_mix_50=50` 之类），
+    /// 新版本默认只跑 `defaultTrack`、其它 track 归零，否则老设备一进来就是 50+4 条。
+    private static let planMigrationKey = "bench_plan_migrated_openai_v1"
+
+    private static func migratePlanIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: planMigrationKey) else { return }
+        UserDefaults.standard.set([defaultTrack: trackTotal(defaultTrack)], forKey: planDefaultsKey)
+        UserDefaults.standard.set(true, forKey: planMigrationKey)
+        overridePlan = nil
+    }
+
     /// 本次要跑的「每条 track 跑多少条」。0 表示不跑。
     ///
     /// 优先级：`overridePlan`（UI）→ `-benchDataset a,b`（各跑满）→ UserDefaults → 默认（默认 track 跑满）。
     public static func selectedPlan() -> [String: Int] {
+        migratePlanIfNeeded()
         if let over = overridePlan, over.values.contains(where: { $0 > 0 }) {
             return clamp(over)
         }
@@ -231,14 +485,23 @@ public enum BenchmarkCaseStore {
     }
 
     /// 按「每条 track 跑多少条」拼出本次要跑的 case 列表（各取前 N 条）。
+    ///
+    /// 单条开关（`isCaseEnabled`）先生效：关掉的 case 不参与，N 在剩下的里面取前 N 条。
     public static func load(plan: [String: Int]) throws -> [BenchmarkCase] {
         var out: [BenchmarkCase] = []
         for t in bundledTracks {
             let n = min(max(0, plan[t] ?? 0), trackTotal(t))
             guard n > 0 else { continue }
-            out += Array(try decode(contentsOf: try casesURL(track: t)).prefix(n))
+            let picked = try decode(contentsOf: try casesURL(track: t))
+                .filter { isCaseEnabled($0.key) }
+            out += Array(picked.prefix(n))
         }
         return out
+    }
+
+    /// 读某条 track 的全部 case（UI 列单条开关时用）。
+    public static func load(track: String) throws -> [BenchmarkCase] {
+        try decode(contentsOf: try casesURL(track: track))
     }
 
     /// 读当前选择。

@@ -150,7 +150,8 @@ public class MTMDWrapper: ObservableObject {
     /// 固定 token 数后噪声恒定在 ±1/N，窗口时长自动适配（N=12：慢档约 3.5 s，快档约 1.2 s）。
     private let livePerfTokenWindow = 12
     /// 最近一个窗口算出的 decode 速度（t/s）。只供「实时速度」显示用。
-    private var liveDecodeRate: Double?
+    /// 实时 decode 速率（tok/s）。对外只读：批量测试要用它自己拼日志，便于按界面语言输出。
+    public private(set) var liveDecodeRate: Double?
     
     /// 生成队列
     private let generationQueue = DispatchQueue(label: "com.mtmd.generation", qos: .userInitiated)
@@ -561,6 +562,17 @@ public class MTMDWrapper: ObservableObject {
         params = nil
         
         print("MTMDWrapper: 上下文已重置")
+    }
+
+    /// 按上次 init 的参数整体重载模型（reset + initialize）。
+    ///
+    /// 用途：批量测试里「有图 case ↔ 无图 case」切换时。文本 case 会把自适应 ubatch 降到 128，
+    /// 之后再来图片 case 要抬回 1024，`recreate_lctx` 期间新旧 context 并存（实测 Metal 瞬时
+    /// +869 MiB）就会触发 jetsam；整体重载让 ub 在 init 时一次到位，不存在这个过渡态。
+    public func reloadModel() async throws {
+        guard let saved = params else { throw MTMDError.contextNotInitialized }
+        await reset()
+        try await initialize(with: saved)
     }
 
     /// 仅清 KV cache + n_past=0，保留 context / sampler 不重建。
