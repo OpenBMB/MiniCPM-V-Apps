@@ -407,8 +407,29 @@ import llama
 
         let current = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
 
+        // OCR 不需要 MTMD wrapper，但必须先释放旧模型再切换 UI
+        if current == "OcrModel" {
+            TtsEngine.shared.destroy()
+            OcrEngine.shared.destroy()
+            // Destroy old OcrViewController so showOcrMode recreates it
+            // with a fresh viewDidLoad → loadModelsIfNeeded cycle.
+            if let old = ocrViewController {
+                old.willMove(toParent: nil)
+                old.view.removeFromSuperview()
+                old.removeFromParent()
+                ocrViewController = nil
+            }
+            showOcrMode()
+            Task { @MainActor in
+                await self.mtmdWrapperExample?.reset()
+                self.didStartInitialModelLoad = false
+            }
+            return
+        }
+
         // VoxCPM2 不需要 MTMD wrapper，但必须先释放旧模型再切换 UI
         if current == "Voxcpm2Model" {
+            OcrEngine.shared.destroy()
             Task { @MainActor in
                 await self.mtmdWrapperExample?.reset()
                 self.didStartInitialModelLoad = false
@@ -417,8 +438,9 @@ import llama
             return
         }
 
-        // 切回聊天模式：先销毁 TTS 引擎释放内存，再切换 UI
+        // 切回聊天模式：先销毁 TTS 引擎 + OCR 引擎释放内存，再切换 UI
         TtsEngine.shared.destroy()
+        OcrEngine.shared.destroy()
         self.showChatMode()
 
         Task { @MainActor in
@@ -441,12 +463,16 @@ import llama
 
     /// TTS 子页面（当 VoxCPM2 被选中时嵌入为主内容）
     var ttsViewController: TtsViewController?
+    /// OCR 子页面（当 OCR 模型被选中时嵌入为主内容）
+    var ocrViewController: OcrViewController?
 
-    /// 根据当前模型类型切换聊天界面 / TTS 界面
+    /// 根据当前模型类型切换聊天界面 / TTS / OCR 界面
     private func switchToCorrectMode() {
         let current = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
         if current == "Voxcpm2Model" {
             showTtsMode()
+        } else if current == "OcrModel" {
+            showOcrMode()
         } else {
             showChatMode()
         }
@@ -454,6 +480,13 @@ import llama
 
     /// 切换到 TTS 模式：隐藏聊天 UI，显示 TTS 界面
     private func showTtsMode() {
+        if let old = ocrViewController {
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+            ocrViewController = nil
+        }
+
         // 先清理旧实例（如果存在），确保每次都从头初始化
         if let old = ttsViewController {
             old.willMove(toParent: nil)
@@ -477,19 +510,65 @@ import llama
         updateNavTitle()
     }
 
-    /// 切换回聊天模式：隐藏 TTS 界面，显示聊天 UI
+    /// 切换回聊天模式：隐藏 TTS / OCR 界面，显示聊天 UI
     private func showChatMode() {
-        guard let ttsVC = ttsViewController else { return }
-
-        ttsVC.willMove(toParent: nil)
-        ttsVC.view.removeFromSuperview()
-        ttsVC.removeFromParent()
-        ttsViewController = nil
+        if let ocrVC = ocrViewController {
+            ocrVC.willMove(toParent: nil)
+            ocrVC.view.removeFromSuperview()
+            ocrVC.removeFromParent()
+            ocrViewController = nil
+        }
+        if let ttsVC = ttsViewController {
+            ttsVC.willMove(toParent: nil)
+            ttsVC.view.removeFromSuperview()
+            ttsVC.removeFromParent()
+            ttsViewController = nil
+        }
 
         // 恢复聊天相关视图
         tableView.isHidden = false
         inputContainerView.isHidden = false
 
+        overrideUserInterfaceStyle = MBTheme.current.userInterfaceStyle
+        updateNavTitle()
+    }
+
+    /// 切换到 OCR 模式：隐藏聊天 UI，显示 OCR 界面
+    private func showOcrMode() {
+        // If the OCR VC is already present and its view is in the hierarchy,
+        // don't recreate it — e.g. when the camera picker dismiss triggers
+        // viewWillAppear → switchToCorrectMode, destroying the picker's
+        // delegate would drop the photo callback.
+        if let existing = ocrViewController, existing.view.superview != nil {
+            return
+        }
+
+        if let old = ocrViewController {
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+            ocrViewController = nil
+        }
+
+        if let old = ttsViewController {
+            old.willMove(toParent: nil)
+            old.view.removeFromSuperview()
+            old.removeFromParent()
+            ttsViewController = nil
+        }
+
+        let ocrVC = OcrViewController()
+        addChild(ocrVC)
+        ocrVC.view.frame = view.bounds
+        ocrVC.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(ocrVC.view)
+        ocrVC.didMove(toParent: self)
+        ocrViewController = ocrVC
+
+        tableView.isHidden = true
+        inputContainerView.isHidden = true
+
+        overrideUserInterfaceStyle = MBTheme.current.userInterfaceStyle
         updateNavTitle()
     }
 
@@ -502,7 +581,7 @@ import llama
             didStartInitialModelLoad = true
 
             let current = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
-            if current != "Voxcpm2Model" {
+            if current != "Voxcpm2Model" && current != "OcrModel" {
                 checkMultiModelLoadStatusAndLoadIt()
             }
         }
@@ -610,6 +689,12 @@ import llama
             updateUIForModelType()
             return
         }
+        if lastSelectedModelString == "OcrModel" {
+            self.title = ""
+            if let label = navTitleLabel { label.text = "MiniCPM-OCR 1.0"; label.sizeToFit() }
+            updateUIForModelType()
+            return
+        }
 
         let isTextOnly = (lastSelectedModelString == "V5TextModel" || lastSelectedModelString == "V526TextModel")
         let brandName = isTextOnly ? "MiniCPM" : "MiniCPM-V"
@@ -667,7 +752,7 @@ import llama
     /// 是否需要隐藏视觉相关 UI（纯文本 / TTS 模型）
     var isSelectedModelNonVisual: Bool {
         let key = UserDefaults.standard.value(forKey: "current_selected_model") as? String ?? ""
-        return key == "V5TextModel" || key == "V526TextModel" || key == "Voxcpm2Model"
+        return key == "V5TextModel" || key == "V526TextModel" || key == "Voxcpm2Model" || key == "OcrModel"
     }
 
     /// 根据当前模型类型（视觉 vs 纯文本）动态显示/隐藏 UI 元素

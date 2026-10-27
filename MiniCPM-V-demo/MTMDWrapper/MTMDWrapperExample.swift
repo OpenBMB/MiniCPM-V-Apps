@@ -37,6 +37,8 @@ enum CurrentUsingModelTypeV2 {
     case V47_1B
     /// VoxCPM2 语音合成模型
     case Voxcpm2Model
+    /// MiniCPM-OCR 1.0 模型
+    case OcrModel
     
     /// 是否为纯文本模型（无 mmproj / 视觉模块）
     var isTextOnly: Bool {
@@ -50,6 +52,14 @@ enum CurrentUsingModelTypeV2 {
     var isTts: Bool {
         switch self {
         case .Voxcpm2Model: return true
+        default: return false
+        }
+    }
+
+    /// 是否为 OCR 模型
+    var isOcr: Bool {
+        switch self {
+        case .OcrModel: return true
         default: return false
         }
     }
@@ -460,6 +470,7 @@ public class MTMDWrapperExample: ObservableObject {
         case .V47MoE:         version = 47
         case .V47_1B:         version = 471
         case .Voxcpm2Model:  version = 0  // VoxCPM2 handled by TtsEngine, not MTMD
+        case .OcrModel:      version = 0  // OCR handled by OcrEngine, not MTMD
         case .Unknown:        version = 46
         }
         mtmdWrapper.setModelVersion(version)

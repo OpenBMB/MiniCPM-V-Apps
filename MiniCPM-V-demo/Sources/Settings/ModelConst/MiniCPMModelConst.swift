@@ -879,6 +879,20 @@ struct MiniCPMV47Const {
         UserDefaults.standard.set(on, forKey: liveTpsDefaultsKey)
     }
 
+    /// 「OCR 实时速度」：OCR 推理过程中在预览上方显示 decode t/s。
+    /// 和聊天的「实时速度」分开，互不影响。
+    static let ocrLiveTpsDefaultsKey = "show_ocr_live_tps"
+
+    static func ocrLiveTpsEnabled() -> Bool {
+        let ud = UserDefaults.standard
+        guard ud.object(forKey: ocrLiveTpsDefaultsKey) != nil else { return true }
+        return ud.bool(forKey: ocrLiveTpsDefaultsKey)
+    }
+
+    static func setOcrLiveTpsEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: ocrLiveTpsDefaultsKey)
+    }
+
     /// 覆盖率（c / 一层专家总数），用于设置页显示。
     static func cacheWindowCoverage(_ c: Int) -> Double {
         Double(min(c, maxSlotBank)) / Double(maxSlotBank)

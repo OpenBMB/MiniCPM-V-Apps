@@ -60,6 +60,10 @@ extension MBHomeViewController {
     @objc func deleteButtonTapped() {
 
         let current = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
+        if current == "OcrModel" {
+            resetOcrMode()
+            return
+        }
         if current == "Voxcpm2Model" {
             resetTtsMode()
             return
@@ -129,9 +133,35 @@ extension MBHomeViewController {
 
             // Reload model
             let hud = MBHUD.showAdded(to: self?.view ?? UIView(), animated: true)
-            hud.label.text = "重新加载中…"
+            hud.label.text = L.Common.reloading.loc
             Task {
                 let ok = await engine.loadModel()
+                DispatchQueue.main.async {
+                    hud.hide(animated: true)
+                }
+            }
+        })
+        alert.addAction(UIAlertAction(title: L.Common.cancel.loc, style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func resetOcrMode() {
+        let alert = UIAlertController(
+            title: L.Ocr.clearTitle.loc,
+            message: L.Ocr.clearMessage.loc,
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L.Common.delete.loc, style: .destructive) { [weak self] _ in
+            let engine = OcrEngine.shared
+            engine.destroy()
+
+            if let ocrVC = self?.ocrViewController {
+                ocrVC.resetAllContent()
+            }
+
+            let hud = MBHUD.showAdded(to: self?.view ?? UIView(), animated: true)
+            hud.label.text = L.Common.reloading.loc
+            Task {
+                await engine.loadModels()
                 DispatchQueue.main.async {
                     hud.hide(animated: true)
                 }

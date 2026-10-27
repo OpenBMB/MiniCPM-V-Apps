@@ -41,6 +41,7 @@ extension MBHomeViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self = self else { return }
             self._warmUpAlertOnce()
+            self._warmUpImagePickerOnce()
             self._warmUpKeyboardOnce()
         }
     }
@@ -53,6 +54,16 @@ extension MBHomeViewController {
     /// UIBlurEffect / alert UIWindow 的 backing class registration / Metal
     /// blur kernel 等都初始化了，等真用户按"切片数量"按钮时直接命中 cache。
     private func _warmUpAlertOnce() {
+        // "Designed for iPad" on Mac maps UIAlertController onto a native
+        // macOS panel. That panel ignores `alert.view.alpha = 0`, so the
+        // dummy title/action (both ".") show up as two black dots in an
+        // empty dialog. Slice-number alerts are chat-only; skip warmup.
+        if ProcessInfo.processInfo.isiOSAppOnMac { return }
+        // Presenting from home while OCR/TTS covers it can leave the alert
+        // stranded on top of the child UI even on iPhone.
+        if ocrViewController?.view.superview != nil { return }
+        if ttsViewController?.view.superview != nil { return }
+
         // iOS 26+ 在 present 时 assert UIAlertController 必须有可显示内容，
         // 否则抛 `NSInternalInconsistencyException: UIAlertController must
         // have a title, a message or an action to display`，未被 catch 会
@@ -68,6 +79,17 @@ extension MBHomeViewController {
         present(alert, animated: false) {
             alert.dismiss(animated: false)
         }
+    }
+
+    /// 仅实例化一次 UIImagePickerController 然后丢弃。**不**真正 present。
+    ///
+    /// OCR 页面使用 UIImagePickerController（而非 PHPicker），首次
+    /// `UIImagePickerController()` alloc 会触发 PhotoLibrary 子系统的
+    /// dlopen + class registration + XPC service 连接，累计约 1-1.5 s。
+    /// 这里提前跑一次 alloc，等用户真点相机/图库按钮时，init 路径已是
+    /// 纯 cache hit（~ms）。
+    private func _warmUpImagePickerOnce() {
+        _ = UIImagePickerController()
     }
 
     /// 触发系统键盘 extension 的首次 spawn —— 尤其针对装了第三方输入法

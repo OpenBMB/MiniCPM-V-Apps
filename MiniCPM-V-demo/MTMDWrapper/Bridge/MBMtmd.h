@@ -57,6 +57,8 @@ typedef struct mb_mtmd_params {
     int   n_ubatch;            // physical batch size; dominates GPU compute buffer (set 0 for default)
     int   n_threads;
     float temperature;
+    float top_p;                 // 1.0 = disabled;  only active when < 1.0
+    int   top_k;                 // 0   = disabled;  only active when > 0
     bool  use_gpu;
     bool  mmproj_use_gpu;
     bool  warmup;

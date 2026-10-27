@@ -37,6 +37,7 @@ extension LocalizationManager {
         L.Settings.sectionMultimodal:    "多模态模型管理",
         L.Settings.sectionLanguageModel: "语言模型管理",
         L.Settings.sectionTts:           "语音合成模型",
+        L.Settings.sectionOcr:           "OCR 模型",
         L.Settings.sectionFeature:       "功能设置",
         L.Settings.sectionOther:         "其他设置",
 
@@ -68,6 +69,8 @@ extension LocalizationManager {
         L.Settings.showPerfSpeedHint:                 "在每条回复底部的工具条上显示本轮 prefill / decode 的 token 速度（与日志里 perf 行同一份数据）。调试和调参时打开，录制演示时关掉。只影响显示，不影响推理。",
         L.Settings.rowLiveTps:                        "实时速度",
         L.Settings.liveTpsHint:                       "开 = 生成过程中在输出框底部实时显示 decode 速度，结束后停在同一位置。关 = 不显示。下一轮生成即生效，不用重载模型。",
+        L.Settings.rowOcrLiveTps:                     "OCR实时速度",
+        L.Settings.ocrLiveTpsHint:                    "开 = OCR 推理过程中把「Live Output」显示成「Live Output: x.x t/s」。关 = 只显示「Live Output」。下一张图即生效，不用重载模型。",
         L.Settings.rowAppearance:                     "夜间模式",
         L.Settings.appearanceTitle:                   "外观",
         L.Settings.appearanceFollowSystem:            "跟随系统",
@@ -388,8 +391,36 @@ extension LocalizationManager {
 
         // MARK: HUD
 
+        L.Download.downloadAll:          "一键下载",
+        L.Common.reloading:              "重新加载中…",
+
         L.HUD.loading:                   "加载中…",
         L.HUD.pleaseWait:                "请稍候…",
         L.HUD.copyFailed:                "复制失败",
+
+        // MARK: OCR
+
+        L.Ocr.placeholder:               "拍照、选图或选择 PDF",
+        L.Ocr.liveOutput:                "Live Output",
+        L.Ocr.currentArea:               "Current Area",
+
+        L.Ocr.statusInitializing:        "初始化中…",
+        L.Ocr.statusLoadingModels:       "加载模型中…",
+        L.Ocr.statusModelsMissing:       "OCR 模型未下载，请到设置页下载。",
+        L.Ocr.statusNotReady:            "OCR 模型未就绪。",
+
+        L.Ocr.statusPdfOpenFailed:       "无法打开 PDF。",
+        L.Ocr.statusPdfNoPages:          "PDF 没有页面。",
+        L.Ocr.statusPdfRendering:        "正在渲染第 %d 页…",
+        L.Ocr.statusPdfRenderFailed:     "PDF 页面渲染失败。",
+
+        L.Ocr.statusDetectingLayout:     "第 %d/%d 页：正在检测版面…",
+        L.Ocr.statusComplete:            "OCR 完成",
+        L.Ocr.statusCompletePages:       "OCR 完成（%d/%d 页）",
+        L.Ocr.statusFailed:              "OCR 失败：%@",
+        L.Ocr.statusCancelled:           "OCR 已取消。",
+
+        L.Ocr.clearTitle:                "清空内容",
+        L.Ocr.clearMessage:              "将清除当前图片和 OCR 结果，并重新加载模型，是否继续？",
     ]
 }

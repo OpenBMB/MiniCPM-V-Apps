@@ -215,8 +215,10 @@ extension MBSettingsViewController: UITableViewDataSource {
         case 2:
             titleLabel.text = L.Settings.sectionTts.loc
         case 3:
-            titleLabel.text = L.Settings.sectionFeature.loc
+            titleLabel.text = L.Settings.sectionOcr.loc
         case 4:
+            titleLabel.text = L.Settings.sectionFeature.loc
+        case 5:
             titleLabel.text = L.Settings.sectionOther.loc
         default:
             titleLabel.text = ""
@@ -254,16 +256,22 @@ extension MBSettingsViewController: UITableViewDelegate {
                                               preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: L.Common.gotIt.loc, style: .default))
                 present(alert, animated: true)
+            } else if model.title == L.Settings.rowOcrLiveTps.loc {
+                let alert = UIAlertController(title: L.Settings.rowOcrLiveTps.loc,
+                                              message: L.Settings.ocrLiveTpsHint.loc,
+                                              preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: L.Common.gotIt.loc, style: .default))
+                present(alert, animated: true)
             }
             return
         }
 
         switch indexPath.section {
-        case 0, 1, 2: // 多模态 / 语言 / TTS 模型
+        case 0, 1, 2, 3: // 多模态 / 语言 / TTS / OCR 模型
             handleModelSelection(model: model, at: indexPath)
-        case 3: // 功能设置
+        case 4: // 功能设置
             handleFeatureSelection(model: model, at: indexPath)
-        case 4: // 其他设置
+        case 5: // 其他设置
             handleOtherSettings(model: model, at: indexPath)
         default:
             break
@@ -314,6 +322,9 @@ extension MBSettingsViewController: UITableViewDelegate {
                 self.navigationController?.pushViewController(detailVC, animated: true)
             } else if title == MiniCPMModelConst.voxcpm2_DisplayedName {
                 let detailVC = MBVoxcpm2ModelDetailViewController(with: mtmdWrapperExample)
+                self.navigationController?.pushViewController(detailVC, animated: true)
+            } else if title == MiniCPMModelConst.ocr_DisplayedName {
+                let detailVC = MBOcrModelDetailViewController(with: mtmdWrapperExample)
                 self.navigationController?.pushViewController(detailVC, animated: true)
             } else if title == MiniCPMV47Const.displayedName {
                 // 4.7 MoE：进下载/详情页（模型槽位等专家设置移到「功能设置」，且仅在用 MoE 时显示）
@@ -569,6 +580,7 @@ extension MBSettingsViewController {
         setupMultimodalModelSection()
         setupLanguageModelSection()
         setupTtsModelSection()
+        setupOcrModelSection()
         setupFeatureSettingsSection()
         setupOtherSettingsSection()
         
@@ -744,7 +756,30 @@ extension MBSettingsViewController {
         dataArray.append(section)
     }
 
-    /// Section 3: 功能设置
+    /// Section 3: OCR 模型 (MiniCPM-OCR 1.0)
+    private func setupOcrModelSection() {
+        var section = [MBSettingsModel]()
+
+        let currentSelectedModel = UserDefaults.standard.string(forKey: "current_selected_model")
+
+        let model = MBSettingsModel()
+        model.title = MiniCPMModelConst.ocr_DisplayedName
+        model.icon = UIImage(systemName: "doc.text.viewfinder")
+        model.accessoryIcon = UIImage(named: "setting_accessory_icon")
+        model.selectedIcon = UIImage(systemName: "checkmark.circle.fill")
+
+        if currentSelectedModel == "OcrModel" {
+            model.status = "selected"
+            model.statusString = L.Settings.statusInUse.loc
+        } else {
+            model.status = "none"
+        }
+
+        section.append(model)
+        dataArray.append(section)
+    }
+
+    /// Section 4: 功能设置
     private func setupFeatureSettingsSection() {
         var section = [MBSettingsModel]()
         
@@ -839,6 +874,18 @@ extension MBSettingsViewController {
         }
         section.append(liveTpsModel)
 
+        let ocrLiveTpsModel = MBSettingsModel()
+        ocrLiveTpsModel.title = L.Settings.rowOcrLiveTps.loc
+        ocrLiveTpsModel.icon = UIImage(systemName: "speedometer")
+        ocrLiveTpsModel.isSwitchEnabled = true
+        ocrLiveTpsModel.switchIsOn = MiniCPMV47Const.ocrLiveTpsEnabled()
+        ocrLiveTpsModel.switchValueChanged = { [weak self] on in
+            MiniCPMV47Const.setOcrLiveTpsEnabled(on)
+            NotificationCenter.default.post(name: .ocrLiveTpsChanged, object: nil)
+            DispatchQueue.main.async { self?.loadTableViewData() }
+        }
+        section.append(ocrLiveTpsModel)
+
         // 夜间模式：跟随系统 / 始终开启 / 始终关闭。改完即时生效，不用重载模型。
         let appearanceModel = MBSettingsModel()
         appearanceModel.title = L.Settings.rowAppearance.loc
@@ -929,6 +976,8 @@ extension MBSettingsViewController {
             mtmdWrapperExample?.currentUsingModelType = .V526TextModel
         } else if currentSelectedModel == "Voxcpm2Model" {
             mtmdWrapperExample?.currentUsingModelType = .Voxcpm2Model
+        } else if currentSelectedModel == "OcrModel" {
+            mtmdWrapperExample?.currentUsingModelType = .OcrModel
         } else if currentSelectedModel == MiniCPMV47Const.userDefaultsKey {
             mtmdWrapperExample?.currentUsingModelType = .V47MoE
         } else if currentSelectedModel == MiniCPMV47_1BConst.userDefaultsKey {

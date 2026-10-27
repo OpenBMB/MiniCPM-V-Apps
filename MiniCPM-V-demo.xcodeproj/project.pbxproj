@@ -118,6 +118,28 @@
 		FEF20008AAAAABBBCCCCDDDD08 /* TtsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10008AAAAABBBCCCCDDDD08 /* TtsViewController.swift */; };
 		FEF20009AAAAABBBCCCCDDDD09 /* 默认女声.wav in Resources */ = {isa = PBXBuildFile; fileRef = FEF10009AAAAABBBCCCCDDDD09 /* 默认女声.wav */; };
 		FEF2000AAAAAAABBBCCCCDDDD0A /* 默认男声.wav in Resources */ = {isa = PBXBuildFile; fileRef = FEF1000AAAAAAABBBCCCCDDDD0A /* 默认男声.wav */; };
+		B8AF3E9230047E260061B458 /* iosMath in Frameworks */ = {isa = PBXBuildFile; productRef = B8AF3E9130047E260061B458 /* iosMath */; };
+		FEF2000B00000000000000000B /* LayoutBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = FEF1000B00000000000000000B /* LayoutBridge.h */; };
+		FEF2000C00000000000000000C /* LayoutBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000C00000000000000000C /* LayoutBridge.mm */; };
+		FEF2000D00000000000000000D /* OcrBridge.h in Headers */ = {isa = PBXBuildFile; fileRef = FEF1000D00000000000000000D /* OcrBridge.h */; };
+		FEF2000E00000000000000000E /* OcrBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000E00000000000000000E /* OcrBridge.mm */; };
+		FEF2000F00000000000000000F /* MiniCPMModelConst+OCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000F00000000000000000F /* MiniCPMModelConst+OCR.swift */; };
+		FEF20010000000000000000010 /* MBOcrModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10010000000000000000010 /* MBOcrModelDownloadManager.swift */; };
+		FEF20011000000000000000011 /* MBOcrModelDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10011000000000000000011 /* MBOcrModelDetailViewController.swift */; };
+		FEF20012000000000000000012 /* OcrEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10012000000000000000012 /* OcrEngine.swift */; };
+		FEF20013000000000000000013 /* OcrViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10013000000000000000013 /* OcrViewController.swift */; };
+		FEF20014000000000000000014 /* OcrDefaultPrompts.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10014000000000000000014 /* OcrDefaultPrompts.swift */; };
+		FEF20015000000000000000015 /* OcrMarkdownUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10015000000000000000015 /* OcrMarkdownUtils.swift */; };
+		FEF20016000000000000000016 /* OcrMarkdownRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF10016000000000000000016 /* OcrMarkdownRenderer.swift */; };
+		FEF20017000000000000000017 /* onnxruntime.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = FEF10017000000000000000017 /* onnxruntime.xcframework */; };
+		FEF20018000000000000000018 /* onnxruntime.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = FEF10017000000000000000017 /* onnxruntime.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		FEF20019000000000000000019 /* assert_arc_enabled.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF10019000000000000000019 /* assert_arc_enabled.mm */; };
+		FEF2001A00000000000000001A /* cxx_utils.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1001A00000000000000001A /* cxx_utils.mm */; };
+		FEF2001B00000000000000001B /* error_utils.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1001B00000000000000001B /* error_utils.mm */; };
+		FEF2001C00000000000000001C /* ort_enums.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1001C00000000000000001C /* ort_enums.mm */; };
+		FEF2001D00000000000000001D /* ort_env.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1001D00000000000000001D /* ort_env.mm */; };
+		FEF2001E00000000000000001E /* ort_session.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1001E00000000000000001E /* ort_session.mm */; };
+		FEF2001F00000000000000001F /* ort_value.mm in Sources */ = {isa = PBXBuildFile; fileRef = FEF1001F00000000000000001F /* ort_value.mm */; };
 		FEF2000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift */; };
 		EFEF9CCF3E0F6A457CF6C478 /* MBV47ModelDownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831D45EFC13EA6C7CA785692 /* MBV47ModelDownloadManager.swift */; };
 		FEF2000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEF1000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift */; };
@@ -141,6 +163,7 @@
 			dstSubfolderSpec = 10;
 			files = (
 				FABA27262E2DD9B900651C44 /* llama.xcframework in Embed Frameworks */,
+				FEF20018000000000000000018 /* onnxruntime.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -267,6 +290,26 @@
 		FEF10008AAAAABBBCCCCDDDD08 /* TtsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TtsViewController.swift; sourceTree = "<group>"; };
 		FEF10009AAAAABBBCCCCDDDD09 /* 默认女声.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "默认女声.wav"; sourceTree = "<group>"; };
 		FEF1000AAAAAAABBBCCCCDDDD0A /* 默认男声.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "默认男声.wav"; sourceTree = "<group>"; };
+		FEF1000B00000000000000000B /* LayoutBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LayoutBridge.h; sourceTree = "<group>"; };
+		FEF1000C00000000000000000C /* LayoutBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = LayoutBridge.mm; sourceTree = "<group>"; };
+		FEF1000D00000000000000000D /* OcrBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = OcrBridge.h; sourceTree = "<group>"; };
+		FEF1000E00000000000000000E /* OcrBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = OcrBridge.mm; sourceTree = "<group>"; };
+		FEF1000F00000000000000000F /* MiniCPMModelConst+OCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MiniCPMModelConst+OCR.swift"; sourceTree = "<group>"; };
+		FEF10010000000000000000010 /* MBOcrModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBOcrModelDownloadManager.swift; sourceTree = "<group>"; };
+		FEF10011000000000000000011 /* MBOcrModelDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBOcrModelDetailViewController.swift; sourceTree = "<group>"; };
+		FEF10012000000000000000012 /* OcrEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrEngine.swift; sourceTree = "<group>"; };
+		FEF10013000000000000000013 /* OcrViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrViewController.swift; sourceTree = "<group>"; };
+		FEF10014000000000000000014 /* OcrDefaultPrompts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrDefaultPrompts.swift; sourceTree = "<group>"; };
+		FEF10015000000000000000015 /* OcrMarkdownUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrMarkdownUtils.swift; sourceTree = "<group>"; };
+		FEF10016000000000000000016 /* OcrMarkdownRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrMarkdownRenderer.swift; sourceTree = "<group>"; };
+		FEF10017000000000000000017 /* onnxruntime.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = onnxruntime.xcframework; sourceTree = "<group>"; };
+		FEF10019000000000000000019 /* assert_arc_enabled.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = assert_arc_enabled.mm; sourceTree = "<group>"; };
+		FEF1001A00000000000000001A /* cxx_utils.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = cxx_utils.mm; sourceTree = "<group>"; };
+		FEF1001B00000000000000001B /* error_utils.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = error_utils.mm; sourceTree = "<group>"; };
+		FEF1001C00000000000000001C /* ort_enums.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ort_enums.mm; sourceTree = "<group>"; };
+		FEF1001D00000000000000001D /* ort_env.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ort_env.mm; sourceTree = "<group>"; };
+		FEF1001E00000000000000001E /* ort_session.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ort_session.mm; sourceTree = "<group>"; };
+		FEF1001F00000000000000001F /* ort_value.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = ort_value.mm; sourceTree = "<group>"; };
 		FEF1000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBV526ModelDownloadManager.swift; sourceTree = "<group>"; };
 		831D45EFC13EA6C7CA785692 /* MBV47ModelDownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBV47ModelDownloadManager.swift; sourceTree = "<group>"; };
 		FEF1000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MBV526ModelDetailViewController.swift; sourceTree = "<group>"; };
@@ -291,6 +334,8 @@
 				FA3FA27F2C1178440077F732 /* Accelerate.framework in Frameworks */,
 				FA24495E2C3D0B6B0012D624 /* SnapKit in Frameworks */,
 				FABA27252E2DD9B900651C44 /* llama.xcframework in Frameworks */,
+				B8AF3E9230047E260061B458 /* iosMath in Frameworks */,
+				FEF20017000000000000000017 /* onnxruntime.xcframework in Frameworks */,
 				FA1ED0A82E225D5A00370614 /* ZipArchive in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -324,6 +369,10 @@
 				383FC58F473E41FB8A3A8D0B /* MBMtmd.mm */,
 				FEF10001AAAAABBBCCCCDDDD01 /* TtsBridge.h */,
 				FEF10002AAAAABBBCCCCDDDD02 /* TtsBridge.mm */,
+				FEF1000B00000000000000000B /* LayoutBridge.h */,
+				FEF1000C00000000000000000C /* LayoutBridge.mm */,
+				FEF1000D00000000000000000D /* OcrBridge.h */,
+				FEF1000E00000000000000000E /* OcrBridge.mm */,
 			);
 			path = Bridge;
 			sourceTree = "<group>";
@@ -403,6 +452,7 @@
 			children = (
 				FAD6428A2E2A223800088528 /* MTMDWrapper */,
 				FAF0892D2E288CA10007CFD5 /* thirdparty */,
+				FEF3000C00000000000000000C /* thirdparty/onnxruntime-objc */,
 				FAC283BF2C1AFD9300A4FD25 /* MiniCPM-V-demo.entitlements */,
 				FAA1195C2C12BA9C00251EB6 /* MiniCPM-V-demo-Bridging-Header.h */,
 				FA3FA2742C1176E90077F732 /* Info.plist */,
@@ -437,6 +487,7 @@
 				FA72852B2C1199D200A7FD14 /* Home */,
 				FB100A012E2D000100000001 /* Tutorial */,
 				0989B383FEFD4414AF588CEA /* Localization */,
+				OCRG0001000000000000000001 /* OCR */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -489,6 +540,7 @@
 				FA35EE742C4901D30099EDC0 /* MBHomeViewController+CaptureVideo.swift */,
 				FA9AB0302F03000200E00030 /* MBImageSliceSettingAlert.swift */,
 				FEF10008AAAAABBBCCCCDDDD08 /* TtsViewController.swift */,
+				FEF10013000000000000000013 /* OcrViewController.swift */,
 			);
 			path = ViewController;
 			sourceTree = "<group>";
@@ -567,6 +619,7 @@
 				F8C9A4FE2B3B9D4941105120 /* MBV47ModelDetailViewController.swift */,
 				FEF1000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift */,
 				FEF10007AAAAABBBCCCCDDDD07 /* MBVoxcpm2ModelDetailViewController.swift */,
+				FEF10011000000000000000011 /* MBOcrModelDetailViewController.swift */,
 			);
 			path = ModelDetail;
 			sourceTree = "<group>";
@@ -613,6 +666,7 @@
 				FEF1000BAAAAABBBCCCCDDDD0B /* MBV526ModelDownloadManager.swift */,
 				831D45EFC13EA6C7CA785692 /* MBV47ModelDownloadManager.swift */,
 				FEF10006AAAAABBBCCCCDDDD06 /* MBVoxcpm2ModelDownloadManager.swift */,
+				FEF10010000000000000000010 /* MBOcrModelDownloadManager.swift */,
 			);
 			path = DownloadManager;
 			sourceTree = "<group>";
@@ -646,6 +700,7 @@
 			children = (
 				FAC2A1D52C11B32500499465 /* MBChatModel.swift */,
 				FEF10003AAAAABBBCCCCDDDD03 /* TtsEngine.swift */,
+				FEF10012000000000000000012 /* OcrEngine.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -705,6 +760,7 @@
 			isa = PBXGroup;
 			children = (
 				FAAC6D1C2E223B0F00D45121 /* MiniCPMModelConst.swift */,
+				FEF1000F00000000000000000F /* MiniCPMModelConst+OCR.swift */,
 				FAE6DA552E210D2700A1E14F /* MBCLIPMetadataProbe.swift */,
 			);
 			path = ModelConst;
@@ -739,6 +795,7 @@
 			isa = PBXGroup;
 			children = (
 				FABA27232E2DD94B00651C44 /* llama.xcframework */,
+				FEF10017000000000000000017 /* onnxruntime.xcframework */,
 			);
 			path = thirdparty;
 			sourceTree = "<group>";
@@ -770,6 +827,31 @@
 			path = ref_audios;
 			sourceTree = "<group>";
 		};
+		OCRG0001000000000000000001 /* OCR */ = {
+			isa = PBXGroup;
+			children = (
+				FEF10014000000000000000014 /* OcrDefaultPrompts.swift */,
+				FEF10015000000000000000015 /* OcrMarkdownUtils.swift */,
+				FEF10016000000000000000016 /* OcrMarkdownRenderer.swift */,
+			);
+			path = OCR;
+			sourceTree = "<group>";
+		};
+		FEF3000C00000000000000000C /* thirdparty/onnxruntime-objc */ = {
+			isa = PBXGroup;
+			children = (
+				FEF10019000000000000000019 /* assert_arc_enabled.mm */,
+				FEF1001A00000000000000001A /* cxx_utils.mm */,
+				FEF1001B00000000000000001B /* error_utils.mm */,
+				FEF1001C00000000000000001C /* ort_enums.mm */,
+				FEF1001D00000000000000001D /* ort_env.mm */,
+				FEF1001E00000000000000001E /* ort_session.mm */,
+				FEF1001F00000000000000001F /* ort_value.mm */,
+			);
+			name = "onnxruntime-objc";
+			path = "thirdparty/onnxruntime-objc";
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -778,6 +860,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				FEF20001AAAAABBBCCCCDDDD01 /* TtsBridge.h in Headers */,
+				FEF2000B00000000000000000B /* LayoutBridge.h in Headers */,
+				FEF2000D00000000000000000D /* OcrBridge.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -821,6 +905,7 @@
 				FA24495D2C3D0B6B0012D624 /* SnapKit */,
 				FA2449632C3D0B7B0012D624 /* HXPhotoPicker */,
 				FA1ED0A72E225D5A00370614 /* ZipArchive */,
+				B8AF3E9130047E260061B458 /* iosMath */,
 			);
 			productName = "MiniCPM-V-demo";
 			productReference = FA3FA2632C1176E80077F732 /* MiniCPM-V-demo.app */;
@@ -859,6 +944,7 @@
 				FA3D8FCE2C1FE7ED003DACDA /* XCRemoteSwiftPackageReference "SnapKit" */,
 				FA3D8FD42C1FE80F003DACDA /* XCRemoteSwiftPackageReference "HXPhotoPicker" */,
 				FA1ED0A62E225D5A00370614 /* XCRemoteSwiftPackageReference "ZipArchive" */,
+				B8AF3E9030047E260061B458 /* XCRemoteSwiftPackageReference "iosMath" */,
 			);
 			productRefGroup = FA3FA2642C1176E80077F732 /* Products */;
 			projectDirPath = "";
@@ -1003,6 +1089,23 @@
 				EFEF9CCF3E0F6A457CF6C478 /* MBV47ModelDownloadManager.swift in Sources */,
 				FEF2000CAAAAABBBCCCCDDDD0C /* MBV526ModelDetailViewController.swift in Sources */,
 				FEF20008AAAAABBBCCCCDDDD08 /* TtsViewController.swift in Sources */,
+				FEF2000C00000000000000000C /* LayoutBridge.mm in Sources */,
+				FEF2000E00000000000000000E /* OcrBridge.mm in Sources */,
+				FEF2000F00000000000000000F /* MiniCPMModelConst+OCR.swift in Sources */,
+				FEF20010000000000000000010 /* MBOcrModelDownloadManager.swift in Sources */,
+				FEF20011000000000000000011 /* MBOcrModelDetailViewController.swift in Sources */,
+				FEF20012000000000000000012 /* OcrEngine.swift in Sources */,
+				FEF20013000000000000000013 /* OcrViewController.swift in Sources */,
+				FEF20014000000000000000014 /* OcrDefaultPrompts.swift in Sources */,
+				FEF20015000000000000000015 /* OcrMarkdownUtils.swift in Sources */,
+				FEF20016000000000000000016 /* OcrMarkdownRenderer.swift in Sources */,
+				FEF20019000000000000000019 /* assert_arc_enabled.mm in Sources */,
+				FEF2001A00000000000000001A /* cxx_utils.mm in Sources */,
+				FEF2001B00000000000000001B /* error_utils.mm in Sources */,
+				FEF2001C00000000000000001C /* ort_enums.mm in Sources */,
+				FEF2001D00000000000000001D /* ort_env.mm in Sources */,
+				FEF2001E00000000000000001E /* ort_session.mm in Sources */,
+				FEF2001F00000000000000001F /* ort_value.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1223,7 +1326,15 @@
 				);
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "";
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MiniCPM-V-demo",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/MTMDWrapper/Bridge",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty/onnxruntime-objc",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/Headers",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/Headers",
+				);
 				INFOPLIST_FILE = "MiniCPM-V-demo/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "MiniCPM-V-Demo";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -1280,7 +1391,15 @@
 				);
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "";
+				HEADER_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(PROJECT_DIR)/MiniCPM-V-demo",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/MTMDWrapper/Bridge",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty/onnxruntime-objc",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/ios-arm64/onnxruntime.framework/Headers",
+					"$(PROJECT_DIR)/MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/ios-arm64_x86_64-simulator/onnxruntime.framework/Headers",
+				);
 				INFOPLIST_FILE = "MiniCPM-V-demo/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "MiniCPM-V-Demo";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
@@ -1350,6 +1469,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		B8AF3E9030047E260061B458 /* XCRemoteSwiftPackageReference "iosMath" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/kostub/iosMath";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
 		FA1ED0A62E225D5A00370614 /* XCRemoteSwiftPackageReference "ZipArchive" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ZipArchive/ZipArchive.git";
@@ -1377,6 +1504,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		B8AF3E9130047E260061B458 /* iosMath */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B8AF3E9030047E260061B458 /* XCRemoteSwiftPackageReference "iosMath" */;
+			productName = iosMath;
+		};
 		FA1ED0A72E225D5A00370614 /* ZipArchive */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FA1ED0A62E225D5A00370614 /* XCRemoteSwiftPackageReference "ZipArchive" */;

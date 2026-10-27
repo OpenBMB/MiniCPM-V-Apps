@@ -9,7 +9,20 @@ import Foundation
 import UIKit
 
 extension UIImage {
-    
+
+    /// Bake `imageOrientation` (EXIF) into pixel data so `cgImage` matches
+    /// the visual size. Camera / gallery JPEGs are often stored landscape with
+    /// `.right`/`.left`; `UIImageView` applies that flag, but `cgImage` does not.
+    func mb_orientedUp() -> UIImage {
+        guard imageOrientation != .up else { return self }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
     func rotated(byDegrees degrees: CGFloat) -> UIImage? {
         let radians = degrees * CGFloat.pi / 180
         return rotated(byRadians: radians)

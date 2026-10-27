@@ -13,6 +13,14 @@ extension MBHomeViewController {
     /// 尝试重新加载多模态模型
     func checkMultiModelLoadStatusAndLoadIt() {
     
+        // OcrModel and Voxcpm2Model are loaded by OcrEngine / TtsEngine respectively,
+        // not by the MTMD wrapper.  Bail out unconditionally to avoid loading the
+        // OCR GGUF as a chat model in parallel with the OCR engine.
+        let selected = UserDefaults.standard.string(forKey: "current_selected_model") ?? ""
+        if selected == "OcrModel" || selected == "Voxcpm2Model" {
+            return
+        }
+
         if self.mtmdWrapperExample?.multiModelLoadingSuccess == true {
             return
         }

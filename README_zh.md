@@ -112,7 +112,19 @@ Build 过程中会出现 `ignoring duplicate libraries` 和 `skipping debug map 
 > - 父仓库 bump 了 llama.cpp-omni submodule 指针（`git submodule status` 显示与本地构建时不同的 commit）
 > - 你自己改动了 `llama.cpp-omni/` 下任意源码
 
-#### 1.1.3 用 Xcode 打开并运行
+#### 1.1.3 下载 onnxruntime.xcframework（首次构建必做）
+
+OCR 版面检测依赖微软 ONNX Runtime。仓库**不追踪** `onnxruntime.xcframework`（zip 约 44 MB，解压约 194 MB）。用下面的脚本拉取公开的 `onnxruntime-c` 1.21.0 CocoaPods 归档（含真机 + 模拟器 + macOS slice）：
+
+```bash
+./scripts/download_onnxruntime.sh
+```
+
+产物落在 `MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/`。若本地已是 1.21.0 则跳过下载；需要重下时：`FORCE=1 ./scripts/download_onnxruntime.sh`。
+
+归档地址是微软公开源：`https://download.onnxruntime.ai/pod-archive-onnxruntime-c-1.21.0.zip`（SHA-256 写在脚本里）。当前 Xcode 工程始终链接该 framework，即使不跑 OCR 也要先下。
+
+#### 1.1.4 用 Xcode 打开并运行
 
 用 Xcode 打开**仓库根目录**的 `MiniCPM-V-demo.xcodeproj`（不在 `MiniCPM-V-demo/` 子目录里），等待 Xcode 自动下载所需依赖。
 
@@ -124,7 +136,7 @@ Build 过程中会出现 `ignoring duplicate libraries` 和 `skipping debug map 
 4. 首次启动后进入 **设置 → 模型管理**，选目标模型点 **一键下载**，下载完点 **使用此模型**
    激活。模型文件与落盘路径见 §2.4。
 
-如果 build 报 `There is no XCFramework found at '.../llama.xcframework'`，说明你跳过了 §1.1.2，回到上一步执行 build。
+如果 build 报 `There is no XCFramework found at '.../llama.xcframework'`，说明你跳过了 §1.1.2，回到上一步执行 build。如果缺的是 `onnxruntime.xcframework`，说明跳过了 §1.1.3。
 
 ### 1.2 Android Demo
 
