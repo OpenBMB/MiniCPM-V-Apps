@@ -25,4 +25,10 @@
 /// VoxCPM2 TTS bridge — 调用 llama.cpp-omni 的 VoxCPM2Runtime
 #import "TtsBridge.h"
 
+/// OCR 推理 bridge — 调用 llama.cpp-omni 的 llama/mtmd API（4x downsample mode）
+#import "OcrBridge.h"
+
+/// 版面检测 bridge — 调用 onnxruntime-objc 的 PP-DocLayoutV3 ONNX 模型
+#import "LayoutBridge.h"
+
 #endif /* MiniCPM_V_demo_Bridging_Header_h */

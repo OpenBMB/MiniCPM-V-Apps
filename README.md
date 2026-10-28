@@ -114,7 +114,19 @@ During the build you will see warnings like `ignoring duplicate libraries` and `
 > - The parent repo bumped the llama.cpp-omni submodule pointer (`git submodule status` shows a commit different from your last local build).
 > - You edited any source under `llama.cpp-omni/` that affects the framework.
 
-#### 1.1.3 Open in Xcode and run
+#### 1.1.3 Download onnxruntime.xcframework (required on first build)
+
+OCR layout detection links Microsoft ONNX Runtime. The repo does **not** track `onnxruntime.xcframework` (~44 MB zip / ~194 MB unpacked). Fetch the public `onnxruntime-c` 1.21.0 CocoaPods archive (iOS device + simulator + macOS slices) with:
+
+```bash
+./scripts/download_onnxruntime.sh
+```
+
+The script writes `MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/` and skips the download if 1.21.0 is already present. Re-fetch with `FORCE=1 ./scripts/download_onnxruntime.sh`.
+
+The archive URL is Microsoft's public host: `https://download.onnxruntime.ai/pod-archive-onnxruntime-c-1.21.0.zip` (SHA-256 is pinned in the script). This Xcode project always links that framework, so the download is required even if you are not using OCR.
+
+#### 1.1.4 Open in Xcode and run
 
 Open `MiniCPM-V-demo.xcodeproj` at the **repository root** (it is not under the `MiniCPM-V-demo/` subdirectory). It may take a moment for Xcode to automatically download the required dependencies.
 
@@ -127,7 +139,7 @@ Open `MiniCPM-V-demo.xcodeproj` at the **repository root** (it is not under the 
 4. On first launch, go to **Settings → Model Management**, tap **Download All** for the model you want,
    then **Use This Model** to activate it. See §2.4 for the files and their on-device locations.
 
-If Xcode fails with `There is no XCFramework found at '.../llama.xcframework'`, you skipped §1.1.2 — go back and run the build.
+If Xcode fails with `There is no XCFramework found at '.../llama.xcframework'`, you skipped §1.1.2 — go back and run the build. If the missing path is `onnxruntime.xcframework`, you skipped §1.1.3.
 
 ### 1.2 Android Demo
 

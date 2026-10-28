@@ -38,6 +38,7 @@ public enum L {
         public static let delete             = "common.delete"
         public static let saved              = "common.saved"
         public static let deleted            = "common.deleted"
+        public static let reloading          = "common.reloading"
     }
 
     // MARK: - Settings (main page + sections)
@@ -48,6 +49,7 @@ public enum L {
         public static let sectionMultimodal  = "settings.section.multimodal"
         public static let sectionLanguageModel = "settings.section.languageModel"
         public static let sectionTts         = "settings.section.tts"
+        public static let sectionOcr         = "settings.section.ocr"
         public static let sectionFeature     = "settings.section.feature"
         public static let sectionOther       = "settings.section.other"
 
@@ -79,6 +81,8 @@ public enum L {
         public static let showPerfSpeedHint               = "settings.showPerfSpeed.hint"
         public static let rowLiveTps                      = "settings.row.liveTps"
         public static let liveTpsHint                     = "settings.liveTps.hint"
+        public static let rowOcrLiveTps                   = "settings.row.ocrLiveTps"
+        public static let ocrLiveTpsHint                  = "settings.ocrLiveTps.hint"
         public static let rowAppearance                   = "settings.row.appearance"
         public static let appearanceTitle                 = "settings.appearance.title"
         public static let appearanceFollowSystem          = "settings.appearance.followSystem"
@@ -191,6 +195,9 @@ public enum L {
         // Progress callback suffix appended to a model display name to form
         // e.g. "MiniCPM-V 4.6 主模型下载失败" / "… download failed"
         public static let progressFailedSuffix = "download.progress.failedSuffix"
+
+        /// Button that starts every pending file of a multi-file model at once.
+        public static let downloadAll        = "download.all"
     }
 
     // MARK: - Home / Chat main page
@@ -450,7 +457,6 @@ public enum L {
     public enum Tts {
         public static let title              = "tts.title"
         public static let navModelManager    = "tts.nav.modelManager"
-
         // Input
         public static let textPlaceholder    = "tts.text.placeholder"
         public static let defaultPrompt       = "tts.text.defaultPrompt"
@@ -506,5 +512,32 @@ public enum L {
         public static let loading            = "hud.loading"
         public static let pleaseWait         = "hud.pleaseWait"
         public static let copyFailed         = "hud.copyFailed"
+    }
+
+    // MARK: - OCR page
+
+    public enum Ocr {
+        public static let placeholder        = "ocr.placeholder"
+        public static let liveOutput         = "ocr.liveOutput"
+        public static let currentArea        = "ocr.currentArea"
+
+        public static let statusInitializing = "ocr.status.initializing"
+        public static let statusLoadingModels = "ocr.status.loadingModels"
+        public static let statusModelsMissing = "ocr.status.modelsMissing"
+        public static let statusNotReady     = "ocr.status.notReady"
+
+        public static let statusPdfOpenFailed = "ocr.status.pdfOpenFailed"
+        public static let statusPdfNoPages   = "ocr.status.pdfNoPages"
+        public static let statusPdfRendering = "ocr.status.pdfRendering"
+        public static let statusPdfRenderFailed = "ocr.status.pdfRenderFailed"
+
+        public static let statusDetectingLayout = "ocr.status.detectingLayout"
+        public static let statusComplete      = "ocr.status.complete"
+        public static let statusCompletePages = "ocr.status.completePages"
+        public static let statusFailed        = "ocr.status.failed"
+        public static let statusCancelled     = "ocr.status.cancelled"
+
+        public static let clearTitle         = "ocr.clear.title"
+        public static let clearMessage       = "ocr.clear.message"
     }
 }

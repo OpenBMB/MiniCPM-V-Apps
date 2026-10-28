@@ -88,6 +88,11 @@ CLAUDE.md
 MiniCPM-V-demo/thirdparty/llama.xcframework/
 MiniCPM-V-demo/thirdparty/llama.xcframework.bak/
 
+# Prebuilt ONNX Runtime xcframework (~194 MB unpacked). Fetch with
+# ./scripts/download_onnxruntime.sh (Microsoft public archive, 1.21.0).
+# Do not track the binary, same rule as llama.xcframework.
+MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/
+
 # Android Studio 个人/项目级 IDE 配置 (compiler.xml / misc.xml / vcs.xml 等会随 AS 版本漂移)
 MiniCPM-V-demo-Android/.idea/
 

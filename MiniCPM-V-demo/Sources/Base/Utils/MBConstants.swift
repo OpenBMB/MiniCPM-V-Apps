@@ -58,4 +58,8 @@ extension Notification.Name {
     /// already-rendered replies, so the switch takes effect immediately instead of
     /// only on the next generation (the user flips this while recording).
     static let mbPerfSpeedVisibilityChanged = Notification.Name("com.mb.minicpmv.perfSpeedVisibilityChanged")
+
+    /// Posted when the "OCR live speed" switch is toggled, so an in-flight OCR page
+    /// hides or shows the readout without waiting for the next token.
+    static let ocrLiveTpsChanged = Notification.Name("com.mb.minicpmv.ocrLiveTpsChanged")
 }

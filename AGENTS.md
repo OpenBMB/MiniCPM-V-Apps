@@ -13,8 +13,9 @@ LLMs. All three clients run fully on-device via a shared `llama.cpp-omni` submod
 
 This repository holds **demo source code + docs only**. Model weights are distributed via
 HuggingFace / ModelScope / OBS and are **not** stored here. Compiled artefacts
-(`llama.xcframework`, Gradle / Hvigor / Xcode build outputs, IDE caches) are intentionally
-**not tracked** — they are produced locally as part of the build (see §3 and the README).
+(`llama.xcframework`, `onnxruntime.xcframework`, Gradle / Hvigor / Xcode build outputs,
+IDE caches) are intentionally **not tracked** — they are produced or downloaded locally
+as part of the build (see §3, §4.1 and the README).
 
 ---
 
@@ -75,6 +76,7 @@ Already covered by `.gitignore`. Agents must double-check the staging list befor
 | Category | Examples |
 |---|---|
 | Prebuilt llama framework | `MiniCPM-V-demo/thirdparty/llama.xcframework/` (~189 MB), `…/llama.xcframework.bak/` |
+| Prebuilt ONNX Runtime | `MiniCPM-V-demo/thirdparty/onnxruntime.xcframework/` (~194 MB unpacked; fetch via `./scripts/download_onnxruntime.sh`) |
 | Xcode build / debug | `build/`, `DerivedData/`, `*.dSYM/`, `xcuserdata/`, `build_tmp/` |
 | Android build / cache | `MiniCPM-V-demo-Android/{app/,}build/`, `.cxx/`, `.gradle/`, `app/src/main/jniLibs/`, `local.properties` |
 | HarmonyOS build / deps | `MiniCPM-V-demo-HarmonyOS/{entry/,}build/`, `.hvigor/`, `oh_modules/` |
@@ -83,6 +85,8 @@ Already covered by `.gitignore`. Agents must double-check the staging list befor
 
 The `llama.xcframework` was deliberately removed from git history (see commit `5e358ab`)
 to keep the repo lean. It must be re-built locally on first checkout, see §4.1.
+`onnxruntime.xcframework` is likewise untracked; fetch it with
+`./scripts/download_onnxruntime.sh` (README §1.1.3).
 
 ---
 
@@ -93,19 +97,25 @@ build configuration should re-read the relevant section first.
 
 ### 4.1 iOS
 
-First-time build requires producing the `llama.xcframework` from the submodule. Use the
-one-shot script:
+First-time build requires producing the `llama.xcframework` from the submodule **and**
+downloading Microsoft's public `onnxruntime.xcframework` (OCR layout + the Xcode project
+always links it):
 
 ```bash
 ./scripts/build_xcframework.sh
+./scripts/download_onnxruntime.sh
 ```
 
-It defaults to `MINIMAL_MODE=ios` (real device + simulator slices only, ~2–3 min on a
-modern M-series Mac). Override with `MINIMAL_MODE={ios-sim,ios-device,all}` for other
-build scopes. See README §1.1.2 for full details.
+`build_xcframework.sh` defaults to `MINIMAL_MODE=ios` (real device + simulator slices
+only, ~2–3 min on a modern M-series Mac). Override with
+`MINIMAL_MODE={ios-sim,ios-device,all}` for other build scopes. See README §1.1.2.
 
-Re-run the script whenever the submodule pointer is bumped, or whenever you edit any
-source under `llama.cpp-omni/` that affects the framework binary.
+`download_onnxruntime.sh` fetches `onnxruntime-c` 1.21.0 from
+`https://download.onnxruntime.ai/` (SHA-256 pinned). Skip if 1.21.0 is already present;
+`FORCE=1` to replace. See README §1.1.3.
+
+Re-run `build_xcframework.sh` whenever the submodule pointer is bumped, or whenever you
+edit any source under `llama.cpp-omni/` that affects the framework binary.
 
 ### 4.2 Android
 
@@ -210,8 +220,9 @@ When rotating a model or re-converting the mmproj, **edit both sides in the same
 
 - Target `OpenBMB/MiniCPM-V-Apps:main`.
 - PR description should cover: motivation, files / platforms touched, whether the
-  reviewer needs to re-run `./scripts/build_xcframework.sh` or re-pull a model, and
-  any user-visible behaviour change.
+  reviewer needs to re-run `./scripts/build_xcframework.sh` and/or
+  `./scripts/download_onnxruntime.sh` or re-pull a model, and any user-visible
+  behaviour change.
 - Reference open issues with `Fixes #N` so GitHub auto-links and auto-closes them.
 
 ---
@@ -221,6 +232,7 @@ When rotating a model or re-converting the mmproj, **edit both sides in the same
 | Symptom | Real cause / fix |
 |---|---|
 | Xcode: `There is no XCFramework found at '.../llama.xcframework'` | First-time build, you skipped README §1.1.2 — run `./scripts/build_xcframework.sh`. |
+| Xcode: `There is no XCFramework found at '.../onnxruntime.xcframework'` | First-time build, you skipped README §1.1.3 — run `./scripts/download_onnxruntime.sh`. |
 | Submodule clone pulls hundreds of MB | Used a plain `git submodule update --init` without `--depth 1 --single-branch`. Use the README §0 / §2 shallow command. |
 | Xcode pauses inside `ggml_uncaught_exception` and looks like a ggml crash | Almost always an Objective-C `NSException` that escaped into C++ and was caught by the `std::terminate_handler` llama.cpp installs. Inspect the `__NSCFConstantString` in the exception's `name` / `reason` — the real culprit is usually UIKit (e.g. issue #14 was a `UIAlertController` rejected by the iOS 26 SDK assertion). |
 | Android `INSTALL_FAILED_USER_RESTRICTED` | Xiaomi / HyperOS disables USB-side installation by default; enable both "USB debugging (security settings)" and "Install via USB" in Developer Options. |

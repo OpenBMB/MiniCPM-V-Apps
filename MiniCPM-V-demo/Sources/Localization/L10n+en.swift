@@ -40,6 +40,7 @@ extension LocalizationManager {
         L.Settings.sectionMultimodal:    "Multimodal Models",
         L.Settings.sectionLanguageModel: "Language Models",
         L.Settings.sectionTts:           "TTS Model",
+        L.Settings.sectionOcr:           "OCR Model",
         L.Settings.sectionFeature:       "Features",
         L.Settings.sectionOther:         "Other",
 
@@ -71,6 +72,8 @@ extension LocalizationManager {
         L.Settings.showPerfSpeedHint:                 "Show this turn\'s prefill / decode token rate in the toolbar under each reply (same numbers as the perf log line). Turn on while debugging or tuning, off when recording a demo. Display only - it does not affect inference.",
         L.Settings.rowLiveTps:                        "Live speed",
         L.Settings.liveTpsHint:                       "On = show decode speed at the bottom of the answer while it is generating, and leave the final number there. Off = hide it. Applies on the next reply; no model reload.",
+        L.Settings.rowOcrLiveTps:                     "OCR live speed",
+        L.Settings.ocrLiveTpsHint:                    "On = the live-output title shows the decode rate while OCR is running. Off = the title stays plain. Applies on the next image; no model reload.",
         L.Settings.rowAppearance:                     "Dark mode",
         L.Settings.appearanceTitle:                   "Appearance",
         L.Settings.appearanceFollowSystem:            "Follow system",
@@ -391,8 +394,36 @@ extension LocalizationManager {
 
         // MARK: HUD
 
+        L.Download.downloadAll:          "Download all",
+        L.Common.reloading:              "Reloading…",
+
         L.HUD.loading:                   "Loading…",
         L.HUD.pleaseWait:                "Please wait…",
         L.HUD.copyFailed:                "Copy failed",
+
+        // MARK: OCR
+
+        L.Ocr.placeholder:               "Take a photo, select an image, or choose a PDF",
+        L.Ocr.liveOutput:                "Live Output",
+        L.Ocr.currentArea:               "Current Area",
+
+        L.Ocr.statusInitializing:        "Initializing…",
+        L.Ocr.statusLoadingModels:       "Loading models…",
+        L.Ocr.statusModelsMissing:       "OCR models not downloaded. Download them in Settings.",
+        L.Ocr.statusNotReady:            "OCR models not ready.",
+
+        L.Ocr.statusPdfOpenFailed:       "Failed to open PDF.",
+        L.Ocr.statusPdfNoPages:          "PDF has no pages.",
+        L.Ocr.statusPdfRendering:        "Rendering %d page(s)…",
+        L.Ocr.statusPdfRenderFailed:     "Failed to render PDF pages.",
+
+        L.Ocr.statusDetectingLayout:     "Page %d/%d: detecting layout…",
+        L.Ocr.statusComplete:            "OCR complete",
+        L.Ocr.statusCompletePages:       "OCR complete (%d/%d pages)",
+        L.Ocr.statusFailed:              "OCR failed: %@",
+        L.Ocr.statusCancelled:           "OCR cancelled.",
+
+        L.Ocr.clearTitle:                "Clear content",
+        L.Ocr.clearMessage:              "This clears the current image and OCR result, then reloads the model. Continue?",
     ]
 }

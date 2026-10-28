@@ -231,8 +231,8 @@ combine_ios_libs() {
         "${build_dir}/ggml/src/${release_dir}/libggml-cpu.a"
         "${build_dir}/ggml/src/ggml-metal/${release_dir}/libggml-metal.a"
         "${build_dir}/ggml/src/ggml-blas/${release_dir}/libggml-blas.a"
-        "${build_dir}/common/${release_dir}/libllama-common.a"
         "${build_dir}/common/${release_dir}/libllama-common-base.a"
+        "${build_dir}/common/${release_dir}/libllama-common.a"
         "${build_dir}/tools/mtmd/${release_dir}/libmtmd.a"
         "${build_dir}/tools/omni/${release_dir}/libvoxcpm2_runtime.a"
         "${build_dir}/tools/omni/${release_dir}/libvoxcpm2_llm.a"
@@ -339,7 +339,7 @@ build_ios_slice() {
     # the 'omni' library or any CLI executables.
     cmake --build "${build_path}" \
         --config Release \
-        --target voxcpm2_runtime mtmd \
+        --target voxcpm2_runtime mtmd llama-common \
         -j "$(sysctl -n hw.logicalcpu)" \
         -- -quiet
 

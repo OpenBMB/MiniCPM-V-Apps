@@ -1979,6 +1979,12 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
 
         if (temp > 0.0f) {
+            if (params.top_k > 0) {
+                llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_k(params.top_k));
+            }
+            if (params.top_p > 0.0f && params.top_p < 1.0f) {
+                llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(params.top_p, /*min_keep=*/1));
+            }
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
             mb_logf("[MBMtmd] sampler: temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",

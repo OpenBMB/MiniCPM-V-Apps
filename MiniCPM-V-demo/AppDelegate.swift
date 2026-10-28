@@ -24,9 +24,13 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             MiniCPMV47Const.seedCacheWindowDefaultIfNeeded()
         }
 
-        DispatchQueue.global(qos: .utility).async {
-            MiniCPMV46CoreMLBootstrap.installBundledModelIntoDocumentsIfNeeded()
-        }
+        // 改名前的 OCR 权重不能被当前代码加载，启动时清掉。
+        MiniCPMModelConst.removeStaleOcrFiles()
+
+        // CoreML ViT bootstrap disabled — OCR uses llama.cpp Metal backend exclusively.
+        // DispatchQueue.global(qos: .utility).async {
+        //     MiniCPMV46CoreMLBootstrap.installBundledModelIntoDocumentsIfNeeded()
+        // }
         return true
     }
 

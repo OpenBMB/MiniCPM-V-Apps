@@ -11,6 +11,15 @@
       }
     },
     {
+      "identity" : "iosmath",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kostub/iosMath",
+      "state" : {
+        "revision" : "57009b693142c67f97317df07ee072221f5b4b9e",
+        "version" : "2.4.0"
+      }
+    },
+    {
       "identity" : "kingfisher",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/onevcat/Kingfisher.git",
