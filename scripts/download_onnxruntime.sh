@@ -28,6 +28,10 @@ ORT_VERSION="1.21.0"
 ORT_URL="https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
 ORT_SHA256="936490d21475ebf03a4f5686e9a751a839d1adc5f9aaafb949485dedb066d9e5"
 
+# Deployment target written into the framework plists. Keep in step with
+# IPHONEOS_DEPLOYMENT_TARGET in the Xcode project.
+IOS_MIN_OS_VERSION="16.6"
+
 : "${FORCE:=0}"
 
 installed_version() {
@@ -36,10 +40,48 @@ installed_version() {
     plutil -extract CFBundleShortVersionString raw "${plist}" 2>/dev/null || return 1
 }
 
+# The CocoaPods archive ships framework Info.plists without the platform
+# metadata iOS needs, so App Store validation rejects the app with
+# "Missing Info.plist value. A value for the key 'MinimumOSVersion' ...".
+# Fill in what a normal Xcode-built framework carries. Each key is removed
+# first so this is safe to re-run on an already patched plist.
+patch_plist() {
+    local plist="$1" platform="$2" sdk="$3"
+    [[ -f "${plist}" ]] || return 0
+    for pair in \
+        "CFBundleDevelopmentRegion:string:en" \
+        "CFBundleInfoDictionaryVersion:string:6.0" \
+        "MinimumOSVersion:string:${IOS_MIN_OS_VERSION}" \
+        "DTPlatformName:string:${platform}" \
+        "DTSDKName:string:${sdk}"; do
+        local key="${pair%%:*}" rest="${pair#*:}"
+        local type="${rest%%:*}" value="${rest#*:}"
+        plutil -remove "${key}" "${plist}" >/dev/null 2>&1 || true
+        plutil -insert "${key}" "-${type}" "${value}" "${plist}"
+    done
+    plutil -remove CFBundleSupportedPlatforms "${plist}" >/dev/null 2>&1 || true
+    if [[ "${platform}" == "iphoneos" ]]; then
+        plutil -insert CFBundleSupportedPlatforms -json '["iPhoneOS"]' "${plist}"
+    else
+        plutil -insert CFBundleSupportedPlatforms -json '["iPhoneSimulator"]' "${plist}"
+    fi
+    plutil -remove UIDeviceFamily "${plist}" >/dev/null 2>&1 || true
+    plutil -insert UIDeviceFamily -json '[1,2]' "${plist}"
+}
+
+patch_all_slices() {
+    patch_plist "${DEST}/ios-arm64/onnxruntime.framework/Info.plist" \
+        "iphoneos" "iphoneos"
+    patch_plist "${DEST}/ios-arm64_x86_64-simulator/onnxruntime.framework/Info.plist" \
+        "iphonesimulator" "iphonesimulator"
+}
+
 if [[ "${FORCE}" != "1" && -d "${DEST}" ]]; then
     local_ver="$(installed_version || true)"
     if [[ "${local_ver}" == "${ORT_VERSION}" ]]; then
         echo "onnxruntime.xcframework ${ORT_VERSION} already at ${DEST}"
+        # Older checkouts predate the plist fix, so repair in place.
+        patch_all_slices
         echo "re-run with FORCE=1 to replace it"
         exit 0
     fi
@@ -73,6 +115,8 @@ fi
 mkdir -p "${DEST_DIR}"
 rm -rf "${DEST}"
 ditto "${SRC}" "${DEST}"
+
+patch_all_slices
 
 echo "installed onnxruntime.xcframework ${ORT_VERSION} -> ${DEST}"
 ls "${DEST}"
