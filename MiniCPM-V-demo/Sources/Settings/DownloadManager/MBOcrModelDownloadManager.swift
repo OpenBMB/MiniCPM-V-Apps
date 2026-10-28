@@ -240,7 +240,15 @@ class MBOcrModelDownloadManager: NSObject {
     // MD5 of these files takes seconds. Stay off the main thread, same as V4.6.
     private func verifyDownloadedFile(filename: String, expectedMD5: String, modelKey: String, displayName: String, manager: MBModelDownloadHelperV2?, onComplete: (() -> Void)?) {
         let fileURL = getDocumentsDirectory().appendingPathComponent(filename)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            // Nothing to verify: surface the failure so the row does not sit on
+            // "downloading" forever.
+            debugLog("-->> OCR \(displayName) 下载完成但文件不存在")
+            setDownloadStatus(.failed, for: modelKey)
+            progressHandler?(displayName + L.Download.progressFailedSuffix.loc, -1)
+            completionHandler?(displayName, false)
+            return
+        }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let checksum = MBUtils.md5(for: fileURL)
@@ -274,9 +282,14 @@ class MBOcrModelDownloadManager: NSObject {
 
     private func expectedMD5(for modelKey: String) -> String {
         switch modelKey {
-        case "ocr_llm": return MiniCPMModelConst.ocr_LLMMD5
+        case "ocr_llm":    return MiniCPMModelConst.ocr_LLMMD5
         case "ocr_mmproj": return MiniCPMModelConst.ocr_MMProjMD5
-        default: return MiniCPMModelConst.ocr_LayoutMD5
+        case "ocr_layout": return MiniCPMModelConst.ocr_LayoutMD5
+        default:
+            // No checksum for an unknown key: verification fails closed rather
+            // than silently accepting the layout checksum.
+            debugLog("-->> OCR 未知 modelKey \(modelKey)，无 MD5 可校验")
+            return ""
         }
     }
 

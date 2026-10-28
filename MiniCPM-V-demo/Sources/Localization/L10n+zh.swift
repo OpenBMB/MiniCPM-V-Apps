@@ -70,7 +70,7 @@ extension LocalizationManager {
         L.Settings.rowLiveTps:                        "实时速度",
         L.Settings.liveTpsHint:                       "开 = 生成过程中在输出框底部实时显示 decode 速度，结束后停在同一位置。关 = 不显示。下一轮生成即生效，不用重载模型。",
         L.Settings.rowOcrLiveTps:                     "OCR实时速度",
-        L.Settings.ocrLiveTpsHint:                    "开 = OCR 推理过程中把「Live Output」显示成「Live Output: x.x t/s」。关 = 只显示「Live Output」。下一张图即生效，不用重载模型。",
+        L.Settings.ocrLiveTpsHint:                    "开 = OCR 推理过程中把「实时输出」显示成「实时输出：x.x t/s」。关 = 只显示「实时输出」。下一张图即生效，不用重载模型。",
         L.Settings.rowAppearance:                     "夜间模式",
         L.Settings.appearanceTitle:                   "外观",
         L.Settings.appearanceFollowSystem:            "跟随系统",
