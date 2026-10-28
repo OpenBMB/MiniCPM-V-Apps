@@ -228,6 +228,7 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
     private var livePreviewHeightConstraint: Constraint?
     /// Last `tableScrollView` width used for height measurement; relayout when it changes.
     private var lastMeasuredContainerWidth: CGFloat = 0
+    var isPickingMedia = false
 
     // MARK: - Lifecycle
 
@@ -248,6 +249,23 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
         activityIndicator.startAnimating()
         statusLabel.text = L.Ocr.statusInitializing.loc
         loadModelsIfNeeded()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        placeholderLabel.text = L.Ocr.placeholder.loc
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isPickingMedia = false
+    }
+
+    // Dismiss calls viewWillAppear synchronously, before this block runs.
+    private func endPickingMedia() {
+        DispatchQueue.main.async { [weak self] in
+            self?.isPickingMedia = false
+        }
     }
 
     deinit {
@@ -458,6 +476,7 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
     }
 
     private func applyLiveSpeed(_ text: String) {
+        liveTitleRight.text = L.Ocr.currentArea.loc
         let show = !text.isEmpty && MiniCPMV47Const.ocrLiveTpsEnabled()
         guard show else {
             liveTitleLeft.attributedText = nil
@@ -528,6 +547,7 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
             statusLabel.text = detail
             livePreviewHeightConstraint?.update(offset: MBUtils.isDeviceIPad() ? 550 : 367)
             livePreviewContainer.isHidden = false
+            liveTitleRight.text = L.Ocr.currentArea.loc
             cameraBtn.isEnabled = false
             galleryBtn.isEnabled = false
             pdfBtn.isEnabled = false
@@ -605,6 +625,7 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
 
     @objc private func openCamera() {
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
+        isPickingMedia = true
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.modalPresentationStyle = .fullScreen
@@ -613,6 +634,7 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
     }
 
     @objc private func openGallery() {
+        isPickingMedia = true
         var config = PickerConfiguration.default
         config.selectMode = .single
         config.selectOptions = [.photo]
@@ -620,8 +642,9 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
         config.maximumSelectedPhotoCount = 1
         config.isSelectedOriginal = true
 
-        Photo.picker(config) { [weak self] result, _ in
+        Photo.picker(config, finish: { [weak self] result, _ in
             guard let self = self else { return }
+            self.endPickingMedia()
             Task {
                 let images: [UIImage] = try await result.objects()
                 guard let image = images.first else { return }
@@ -629,14 +652,21 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
                     self.handleSelectedImage(image)
                 }
             }
-        }
+        }, cancel: { [weak self] _ in
+            self?.endPickingMedia()
+        })
     }
 
     @objc private func openPDF() {
+        isPickingMedia = true
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf], asCopy: true)
         picker.allowsMultipleSelection = false
         picker.delegate = self
         present(picker, animated: true)
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        endPickingMedia()
     }
 
     private func openLocalPDF(_ url: URL) {
@@ -769,13 +799,20 @@ class OcrViewController: UIViewController, UIImagePickerControllerDelegate, UINa
     func imagePickerController(_ picker: UIImagePickerController,
                                didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
         picker.dismiss(animated: true)
+        endPickingMedia()
         guard let image = info[.originalImage] as? UIImage else { return }
         handleSelectedImage(image)
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+        endPickingMedia()
     }
 
     // MARK: - UIDocumentPickerDelegate (PDF)
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        endPickingMedia()
         guard let url = urls.first else { return }
         openLocalPDF(url)
     }

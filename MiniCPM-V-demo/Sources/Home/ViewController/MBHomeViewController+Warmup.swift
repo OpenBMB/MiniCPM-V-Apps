@@ -81,13 +81,8 @@ extension MBHomeViewController {
         }
     }
 
-    /// 仅实例化一次 UIImagePickerController 然后丢弃。**不**真正 present。
-    ///
-    /// OCR 页面使用 UIImagePickerController（而非 PHPicker），首次
-    /// `UIImagePickerController()` alloc 会触发 PhotoLibrary 子系统的
-    /// dlopen + class registration + XPC service 连接，累计约 1-1.5 s。
-    /// 这里提前跑一次 alloc，等用户真点相机/图库按钮时，init 路径已是
-    /// 纯 cache hit（~ms）。
+    /// Alloc a UIImagePickerController once and drop it. Do not present.
+    /// The first OCR alloc pays the photo-library startup.
     private func _warmUpImagePickerOnce() {
         _ = UIImagePickerController()
     }

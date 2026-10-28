@@ -196,7 +196,6 @@ class MBOcrModelDownloadManager: NSObject {
 
         setDownloadStatus(.downloading, for: modelKey)
         debugLog("-->> OCR \(displayName) 开始下载")
-        var lastLoggedPct = -1
 
         manager?.downloadV2(completionBlock: { [weak self] status, progress in
             guard let self = self else { return }
@@ -218,25 +217,67 @@ class MBOcrModelDownloadManager: NSObject {
                         self.completionHandler?(displayName, false)
                         return
                     }
-                    self.setDownloadStatus(.completed, for: modelKey)
-                    self.progressHandler?(displayName, 1.0)
-                    self.completionHandler?(displayName, true)
-                    self.updateDownloadProgress(1.0, for: modelKey, modelName: displayName)
-                    onComplete?()
+                    self.verifyDownloadedFile(
+                        filename: filename,
+                        expectedMD5: self.expectedMD5(for: modelKey),
+                        modelKey: modelKey,
+                        displayName: displayName,
+                        manager: manager,
+                        onComplete: onComplete
+                    )
                 } else if status == "failed" {
                     self.setDownloadStatus(.failed, for: modelKey)
                     self.progressHandler?(displayName + L.Download.progressFailedSuffix.loc, -1)
                     self.completionHandler?(displayName, false)
                 } else {
-                    let pct = Int(progress * 100)
-                    if pct != lastLoggedPct, pct % 5 == 0 {
-                        lastLoggedPct = pct
-                    }
                     self.progressHandler?(displayName, progress)
                     self.updateDownloadProgress(progress, for: modelKey, modelName: displayName)
                 }
             }
         })
+    }
+
+    // MD5 of these files takes seconds. Stay off the main thread, same as V4.6.
+    private func verifyDownloadedFile(filename: String, expectedMD5: String, modelKey: String, displayName: String, manager: MBModelDownloadHelperV2?, onComplete: (() -> Void)?) {
+        let fileURL = getDocumentsDirectory().appendingPathComponent(filename)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let checksum = MBUtils.md5(for: fileURL)
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let checksum {
+                    debugLog("-->> OCR \(displayName) 实际 MD5: \(checksum)")
+                    debugLog("-->> OCR \(displayName) 期望 MD5: \(expectedMD5)")
+                }
+                if checksum == expectedMD5 {
+                    debugLog("-->> OCR \(displayName) MD5 校验成功")
+                    MBModelArtifactStore.markValidated(fileURL, expectedMD5: expectedMD5)
+                    manager?.status = "downloaded"
+                    self.setDownloadStatus(.completed, for: modelKey)
+                    self.progressHandler?(displayName, 1.0)
+                    self.completionHandler?(displayName, true)
+                    self.updateDownloadProgress(1.0, for: modelKey, modelName: displayName)
+                    onComplete?()
+                } else {
+                    debugLog("-->> OCR \(displayName) MD5 校验失败")
+                    manager?.status = "download"
+                    MBModelArtifactStore.invalidate(fileURL)
+                    try? FileManager.default.removeItem(at: fileURL)
+                    self.setDownloadStatus(.notStarted, for: modelKey)
+                    self.progressHandler?(displayName + L.Download.progressFailedSuffix.loc, -1)
+                    self.completionHandler?(displayName, false)
+                }
+            }
+        }
+    }
+
+    private func expectedMD5(for modelKey: String) -> String {
+        switch modelKey {
+        case "ocr_llm": return MiniCPMModelConst.ocr_LLMMD5
+        case "ocr_mmproj": return MiniCPMModelConst.ocr_MMProjMD5
+        default: return MiniCPMModelConst.ocr_LayoutMD5
+        }
     }
 
     // MARK: - 一键下载（串行：LLM → mmproj → layout）

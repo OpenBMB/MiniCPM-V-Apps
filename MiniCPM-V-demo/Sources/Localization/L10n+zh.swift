@@ -401,8 +401,8 @@ extension LocalizationManager {
         // MARK: OCR
 
         L.Ocr.placeholder:               "拍照、选图或选择 PDF",
-        L.Ocr.liveOutput:                "Live Output",
-        L.Ocr.currentArea:               "Current Area",
+        L.Ocr.liveOutput:                "实时输出",
+        L.Ocr.currentArea:               "当前区域",
 
         L.Ocr.statusInitializing:        "初始化中…",
         L.Ocr.statusLoadingModels:       "加载模型中…",

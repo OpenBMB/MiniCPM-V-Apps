@@ -142,7 +142,7 @@ public class OcrEngine: ObservableObject {
         }
 
         guard layoutLoaded else {
-            state = .error("Failed to load PP-DocLayout3 layout model.")
+            state = .error("Failed to load PP-DocLayoutV3 layout model.")
             return
         }
 
@@ -360,6 +360,18 @@ public class OcrEngine: ObservableObject {
         return caches
     }
 
+    /// Live preview only. The assembled markdown still uses the full crop text.
+    private func appendLiveStream(_ text: String, generation g: Int) {
+        DispatchQueue.main.async {
+            guard self.liveGeneration == g else { return }
+            var next = self.liveCropStream + text
+            if next.count >= 800 {
+                next = String(next.suffix(500))
+            }
+            self.liveCropStream = next
+        }
+    }
+
     /// Full recognition pipeline
 
     public func recognize(fullImage: UIImage) async throws -> String {
@@ -454,23 +466,14 @@ public class OcrEngine: ObservableObject {
             // Set live preview state — dispatch each token batch directly
             self.liveCropImage = cropImg
             if idx > 0 {
-                let g = generation
-                DispatchQueue.main.async {
-                    guard self.liveGeneration == g else { return }
-                    self.liveCropStream += "\n\n"
-                }
+                appendLiveStream("\n\n", generation: generation)
             }
 
             let rawContent = try await recognizeCrop(cropImage: cropImg,
                                                       prompt: elem.prompt,
                                                       maxTokens: elem.maxTokens,
                                                       onToken: { token in
-                let t = token
-                let g = generation
-                DispatchQueue.main.async {
-                    guard self.liveGeneration == g else { return }
-                    self.liveCropStream += t
-                }
+                self.appendLiveStream(token, generation: generation)
             })
 
             // classify on the raw string, then postprocess. Mixed-formula is
