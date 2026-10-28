@@ -155,6 +155,7 @@ extension MBHomeViewController {
             engine.destroy()
 
             if let ocrVC = self?.ocrViewController {
+                ocrVC.isPickingMedia = false
                 ocrVC.resetAllContent()
             }
 

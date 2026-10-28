@@ -535,11 +535,10 @@ import llama
 
     /// 切换到 OCR 模式：隐藏聊天 UI，显示 OCR 界面
     private func showOcrMode() {
-        // If the OCR VC is already present and its view is in the hierarchy,
-        // don't recreate it — e.g. when the camera picker dismiss triggers
-        // viewWillAppear → switchToCorrectMode, destroying the picker's
-        // delegate would drop the photo callback.
-        if let existing = ocrViewController, existing.view.superview != nil {
+        // Picker dismiss re-enters here and would drop the photo callback.
+        if let existing = ocrViewController,
+           existing.view.superview != nil,
+           existing.isPickingMedia {
             return
         }
 
