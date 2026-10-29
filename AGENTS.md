@@ -12,7 +12,7 @@ A cross-platform **iOS / Android / HarmonyOS** demo for the MiniCPM-V family of 
 LLMs. All three clients run fully on-device via a shared `llama.cpp-omni` submodule.
 
 This repository holds **demo source code + docs only**. Model weights are distributed via
-HuggingFace / ModelScope / OBS and are **not** stored here. Compiled artefacts
+HuggingFace and ModelScope and are **not** stored here. Compiled artefacts
 (`llama.xcframework`, `onnxruntime.xcframework`, Gradle / Hvigor / Xcode build outputs,
 IDE caches) are intentionally **not tracked** — they are produced or downloaded locally
 as part of the build (see §3, §4.1 and the README).
@@ -173,7 +173,7 @@ suffixes in user-facing filenames.**
 
 ## 6. Cross-platform model consistency (iOS ↔ Android)
 
-iOS and Android share the same model files (gguf + mmproj) over the same OBS / HF / MS
+iOS and Android share the same model files (gguf + mmproj) over the same HF / MS
 distribution. The two clients must agree on the MD5 of every artefact, otherwise side-by-side
 testing breaks.
 
@@ -184,11 +184,19 @@ When rotating a model or re-converting the mmproj, **edit both sides in the same
 - Android: `MiniCPM-V-demo-Android/app/src/main/java/com/example/minicpm_v_demo/ModelInfo.kt`
   (`ggufMd5` / `mmprojMd5`).
 
-> **mmproj migration caveat**: this demo's branch of llama.cpp-omni expects
-> `clip.projector_type=merger`, which differs from the upstream `minicpmv4_6` type
-> currently exported by the standard conversion path. When swapping mmproj layouts,
-> rename the file on disk (so legacy on-device copies are not blindly reused) and add
-> the old filename to the client's "stale layout" purge list. MD5 fast-paths alone are
+MiniCPM-OCR 1.0 is the exception: it is wired up in the **iOS demo only**, so its three
+artefacts live in `MiniCPMModelConst+OCR.swift` (`ocr_LLMMD5` / `ocr_MMProjMD5` /
+`ocr_LayoutMD5`) with no Android counterpart. Both download sources (HF and the ModelScope
+mirror) must carry byte-identical files, because the downloader races them and MD5-checks the
+winner.
+
+> **mmproj layout caveat**: `ios-omni` resolves the projector type from the GGUF's
+> `clip.projector_type` and accepts `minicpmv4_6`, `minicpmv4_7` and `minicpm_ocr_1_0`. A
+> 4x mmproj (`clip.vision.projector.scale_factor=2`) drops the ViT merger and takes the 4x
+> graph; a 16x mmproj keeps it. Chat mmproj and the OCR mmproj are **not** interchangeable.
+> When swapping mmproj layouts, rename the file on disk (so legacy on-device copies are not
+> blindly reused) and add the old filename to the client's stale-file purge list
+> (`ocr_StaleFileNames` in `MiniCPMModelConst+OCR.swift` for OCR). MD5 fast-paths alone are
 > not sufficient — some load paths check existence first and skip the MD5 check.
 
 ---

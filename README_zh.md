@@ -12,6 +12,7 @@
 * **MiniCPM5-1B**（纯文本）
 * **MiniCPM5-2B**（纯文本）
 * **VoxCPM2**（语音合成 TTS）
+* **MiniCPM-OCR 1.0**（文档识别 —— **仅 iOS**）
 
 仓库中包含三份基于 `llama.cpp` 完整本地推理的 demo：
 
@@ -175,7 +176,7 @@ cd MiniCPM-V-demo-Android
 
 首次启动后，进入应用内的 **模型管理** 页面点击 **下载模型**。也可以使用 `hdc file send` 旁路侧载模型文件，详见 `MiniCPM-V-demo-HarmonyOS/README_zh.md`。
 
-> 鸿蒙端 C++ 推理层与 Android、iOS 共用仓库根目录的 `llama.cpp-omni` 子模块，模型清单 / OBS 直链 / MD5 哈希严格同源。
+> 鸿蒙端 C++ 推理层与 Android、iOS 共用仓库根目录的 `llama.cpp-omni` 子模块，模型清单 / HuggingFace 与 ModelScope 下载地址 / MD5 哈希严格同源。
 
 ---
 
@@ -195,12 +196,14 @@ cd MiniCPM-V-demo-Android
 | MiniCPM5-1B | 1B | Q4_K_M | ~0.5 GB | — | ~0.5 GB | **≥ 4 GB** |
 | MiniCPM5-2B | 2B | Q4_K_M | ~1.5 GB | — | ~1.5 GB | **≥ 6 GB** |
 | VoxCPM2 (TTS) | ~2B | Q4_K_M + F16 | ~1.0 GB | — | ~2.8 GB | **≥ 6 GB** |
+| MiniCPM-OCR 1.0 (iOS) | 752M | Q4_K_M | ~0.5 GB | ~0.9 GB | **~1.6 GB** | **≥ 6 GB** |
 
 补充说明：
 
 * `mmproj` 是视觉投影器 + ViT 权重，统一保留 **f16** 精度——视觉塔做低比特量化对感知质量的伤害比 LLM 更明显。
 * MiniCPM5-1B 与 MiniCPM5-2B 为纯文本模型，不需要 `mmproj` 文件。
 * VoxCPM2 需要两个 GGUF 文件（BaseLM + Acoustic），同样不需要 `mmproj`——它是一个纯语音合成模型。
+* MiniCPM-OCR 1.0 是**三个文件**：LLM、4x 视觉投影器，外加一个独立的 PP-DocLayoutV3 ONNX 版面检测模型。目前只在 **iOS demo** 里接入，Android 和 HarmonyOS 端还没有 OCR 管线。它的 `mmproj` 是 4x 投影器，**不能**和聊天模型的 `mmproj` 混用。
 * MiniCPM-V 4.7 35B-A3B 的专家权重用的是 **Q3_K** 量化（`mix_q3gud_im`）而非 Q4，且路由专家已从主 `.gguf` 中剥离到独立的 `experts/` 目录。表中的 **~16.6 GB** = 主文件 + 40 个专家分片 + `mmproj`，请预留约 17 GB 空闲存储。由于专家是按需从 SSD 流式读取、并不常驻内存，这一档还要求**较快的机身存储**，详见 §2.4。
 * 三端 demo 默认上下文长度为 4K token。上下文越长，KV cache 占用近似线性增长，临界设备上可能需要相应调小。
 * Android / HarmonyOS 上跑 V 2.6 强烈建议 8 GB 及以上内存。iOS 上 V 2.6 已在 iPhone 15 Pro / 16 系列以及搭载 M 系列芯片的较新 iPad 上验证；早期 6 GB 内存设备容易出现频繁换页。
@@ -308,3 +311,39 @@ VoxCPM2 支持 30+ 种语言和 9 种中国方言。可直接从文本生成语�
 * ModelScope: [https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
 
 下载后将两个 `.gguf` 文件放入 App 的 **Documents** 目录（iOS），或放入 `/models/{model_id}/` 目录（Android / HarmonyOS）。也可以在 App 内的 **模型管理** 页面直接下载。下载完成后选择 VoxCPM2 模型，App 将自动切换至语音合成界面。
+
+### 2.8 MiniCPM-OCR 1.0 模型文件（文档识别，仅 iOS）
+
+MiniCPM-OCR 1.0 把照片、截图或 PDF 页转成 Markdown：先做版面检测切块，再逐块送视觉语言模型识别，最后按阅读顺序拼回标题、正文、表格、公式和印章。
+
+需要三个文件：
+
+- **LLM**（`MiniCPM-OCR-1_0-Q4_K_M.gguf`，约 529 MB）—— 752M 参数的文本塔
+- **mmproj**（`MiniCPM-OCR-1_0-mmproj-F16-4x.gguf`，约 901 MB）—— 4x 视觉投影器（ViT + final merger）
+- **版面检测**（`PPDocLayoutV3_fix4.onnx`，约 142 MB）—— PP-DocLayoutV3 ONNX 模型，走 ONNX Runtime
+
+合计约 **1.6 GB**。建议 **≥ 6 GB 内存**，OCR 会同时常驻 LLM 上下文和视觉编码器。
+
+> 这里的 `mmproj` 是 **4x** 投影器（`scale_factor=2`），专用于 OCR。不要拿聊天模型的 `mmproj-model-f16.gguf` 顶替，也不要把这份喂给聊天模型。
+
+#### 下载
+
+* HuggingFace：[https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf](https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf)（`MiniCPM-OCR-1.0/` 目录下）
+* ModelScope：[https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)（`MiniCPM-OCR-1.0/` 目录下）
+
+上游原始权重在 `openbmb/MiniCPM-OCR-1.0-gguf`。上面的 Q4_K_M 是用 `llama-quantize` 从官方 `MiniCPM-OCR-1_0-F16.gguf` 量化出来的；mmproj 与官方逐字节一致。
+
+最省事的方式：打开 **设置 → 模型管理 → MiniCPM-OCR 1.0**，点 **一键下载**。App 会同时向 HuggingFace 和 ModelScope 发起请求，谁先响应就用谁，境内境外都能用。
+
+手动放置的话，把三个文件都放进 App 的 **Documents** 目录，文件名保持一致：
+
+```
+Documents/
+├── MiniCPM-OCR-1_0-Q4_K_M.gguf
+├── MiniCPM-OCR-1_0-mmproj-F16-4x.gguf
+└── PPDocLayoutV3_fix4.onnx
+```
+
+然后在设置页选中 **MiniCPM-OCR 1.0**，App 会自动切到 OCR 界面。下载完成后会先做 MD5 校验，传输不完整会被拒绝并重下，不会等到加载阶段才失败。
+
+> 从源码构建还需要 `onnxruntime.xcframework`，见 §1.1.3。

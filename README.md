@@ -12,6 +12,7 @@ This demo runs the MiniCPM-V family of multimodal models fully on-device on iOS,
 * **MiniCPM5-1B** (text-only)
 * **MiniCPM5-2B** (text-only)
 * **VoxCPM2** (text-to-speech, TTS)
+* **MiniCPM-OCR 1.0** (document OCR — **iOS only**)
 
 This repository contains three on-device demos for MiniCPM-V (multimodal LLM) running fully locally via `llama.cpp`:
 
@@ -178,7 +179,7 @@ Build & run:
 
 After the first launch, open the in-app **Model Manager** and tap **Download**. You can also sideload model files via `hdc file send`; see `MiniCPM-V-demo-HarmonyOS/README_zh.md` for the expected directory layout.
 
-> The HarmonyOS port shares the exact same `llama.cpp-omni` submodule, model catalogue, OBS direct-link URLs and MD5 hashes with the iOS / Android demos.
+> The HarmonyOS port shares the exact same `llama.cpp-omni` submodule, model catalogue, HuggingFace / ModelScope download URLs and MD5 hashes with the iOS / Android demos.
 
 ---
 
@@ -198,12 +199,14 @@ The on-device memory needed to run a model is roughly *(model file size) + KV ca
 | MiniCPM5-1B | 1B | Q4_K_M | ~0.5 GB | — | ~0.5 GB | **≥ 4 GB** |
 | MiniCPM5-2B | 2B | Q4_K_M | ~1.5 GB | — | ~1.5 GB | **≥ 6 GB** |
 | VoxCPM2 (TTS) | ~2B | Q4_K_M + F16 | ~1.0 GB | — | ~2.8 GB | **≥ 6 GB** |
+| MiniCPM-OCR 1.0 (iOS) | 752M | Q4_K_M | ~0.5 GB | ~0.9 GB | **~1.6 GB** | **≥ 6 GB** |
 
 Notes:
 
 * `mmproj` is the vision projector + ViT weights; it is shipped in **f16** because quantising the visual tower hurts perception quality noticeably more than quantising the LLM.
 * MiniCPM5-1B and MiniCPM5-2B are text-only models and do not need an `mmproj` file.
 * VoxCPM2 requires two GGUF files (BaseLM + Acoustic) and does not use an `mmproj` either — it is a pure TTS model.
+* MiniCPM-OCR 1.0 is a three-file model: the LLM, the 4x vision projector, **and** a separate PP-DocLayoutV3 ONNX layout detector. It is currently wired up in the **iOS demo only**; the Android and HarmonyOS clients do not have the OCR pipeline. Its `mmproj` is a 4x projector and is *not* interchangeable with the chat models' `mmproj`.
 * MiniCPM-V 4.7 35B-A3B uses a **Q3_K** expert quant (`mix_q3gud_im`) rather than Q4, and its routed experts are split out of the main `.gguf` into a separate `experts/` directory. The **~16.6 GB** above is the main file + all 40 expert shards + `mmproj`; plan for ~17 GB of free storage. Because the experts are streamed from SSD on demand rather than held in RAM, this variant also needs **fast internal storage** — see §2.4.
 * All three demos default to a context window of 4K tokens. Larger contexts will increase the KV-cache footprint roughly linearly, so on a borderline device you may need to lower it.
 * On Android / HarmonyOS, devices with 8 GB+ RAM are strongly recommended for V 2.6. On iOS, V 2.6 has been validated on iPhone 15 Pro / 16 series and recent iPads with M-series chips; older 6 GB devices may swap heavily.
@@ -315,3 +318,39 @@ VoxCPM2 supports 30+ languages and 9 Chinese dialects. It can generate speech fr
 * ModelScope: [https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
 
 After downloading, place both `.gguf` files in the app's **Documents** directory (iOS) or in the per-model folder under `{ExternalFilesDir}/models/` (Android / HarmonyOS). You can also download them directly inside the app via **Model Manager**. Once models are downloaded, select VoxCPM2 and the app switches to the TTS interface automatically.
+
+### 2.8 MiniCPM-OCR 1.0 Files (document OCR, iOS only)
+
+MiniCPM-OCR 1.0 turns a photo, screenshot or PDF page into Markdown: it detects layout blocks first, then runs the vision-language model on each crop and stitches the results back into reading order (headings, paragraphs, tables, formulas and seals).
+
+The pipeline needs three files:
+
+- **LLM** (`MiniCPM-OCR-1_0-Q4_K_M.gguf`, ~529 MB) — 752M-parameter text tower
+- **mmproj** (`MiniCPM-OCR-1_0-mmproj-F16-4x.gguf`, ~901 MB) — 4x vision projector (ViT + final merger)
+- **Layout detector** (`PPDocLayoutV3_fix4.onnx`, ~142 MB) — PP-DocLayoutV3 ONNX model, run through ONNX Runtime
+
+Roughly **1.6 GB** in total. Plan for **≥ 6 GB RAM**; OCR keeps the LLM context plus the vision encoder resident.
+
+> The `mmproj` here is a **4x** projector (`scale_factor=2`) and is specific to OCR. Do not reuse the chat models' `mmproj-model-f16.gguf`, and do not feed this one to a chat model.
+
+#### Download
+
+* HuggingFace: [https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf](https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf) (under `MiniCPM-OCR-1.0/`)
+* ModelScope: [https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf) (under `MiniCPM-OCR-1.0/`)
+
+The upstream weights live in `openbmb/MiniCPM-OCR-1.0-gguf`. The Q4_K_M file above is quantised from the official `MiniCPM-OCR-1_0-F16.gguf` with `llama-quantize`; the mmproj is byte-identical to the official one.
+
+Easiest path: open **Settings → Model Management → MiniCPM-OCR 1.0** and tap **Download All**. The app races HuggingFace and ModelScope in parallel and keeps whichever responds first, so it works both inside and outside mainland China.
+
+To place the files by hand, put all three in the app's **Documents** directory and keep these exact names:
+
+```
+Documents/
+├── MiniCPM-OCR-1_0-Q4_K_M.gguf
+├── MiniCPM-OCR-1_0-mmproj-F16-4x.gguf
+└── PPDocLayoutV3_fix4.onnx
+```
+
+Then select **MiniCPM-OCR 1.0** in Settings; the app switches to the OCR interface. Downloads are MD5-checked before use, so a truncated transfer is rejected instead of silently failing at load time.
+
+> Building from source additionally requires `onnxruntime.xcframework` — see §1.1.3.
