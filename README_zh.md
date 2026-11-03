@@ -12,7 +12,7 @@
 * **MiniCPM5-1B**（纯文本）
 * **MiniCPM5-2B**（纯文本）
 * **VoxCPM2**（语音合成 TTS）
-* **MiniCPM-OCR 1.0**（文档识别 —— **仅 iOS**）
+* **MiniCPM-OCR 1.0**（文档识别 —— iOS / Android）
 
 仓库中包含三份基于 `llama.cpp` 完整本地推理的 demo：
 
@@ -312,7 +312,7 @@ VoxCPM2 支持 30+ 种语言和 9 种中国方言。可直接从文本生成语�
 
 下载后将两个 `.gguf` 文件放入 App 的 **Documents** 目录（iOS），或放入 `/models/{model_id}/` 目录（Android / HarmonyOS）。也可以在 App 内的 **模型管理** 页面直接下载。下载完成后选择 VoxCPM2 模型，App 将自动切换至语音合成界面。
 
-### 2.8 MiniCPM-OCR 1.0 模型文件（文档识别，仅 iOS）
+### 2.8 MiniCPM-OCR 1.0 模型文件（文档识别，iOS / Android）
 
 MiniCPM-OCR 1.0 把照片、截图或 PDF 页转成 Markdown：先做版面检测切块，再逐块送视觉语言模型识别，最后按阅读顺序拼回标题、正文、表格、公式和印章。
 
@@ -346,4 +346,19 @@ Documents/
 
 然后在设置页选中 **MiniCPM-OCR 1.0**，App 会自动切到 OCR 界面。下载完成后会先做 MD5 校验，传输不完整会被拒绝并重下，不会等到加载阶段才失败。
 
-> 从源码构建还需要 `onnxruntime.xcframework`，见 §1.1.3。
+Android 端三个文件落在 `{ExternalFilesDir}/models/minicpm-ocr-1.0/`，同样在模型管理页点「一键下载」即可。ONNX Runtime 走 Maven 依赖，不用手动拉。
+
+> 从源码构建 iOS 还需要 `onnxruntime.xcframework`，见 §1.1.3。
+
+#### 可选：Hexagon NPU 加速（Android）
+
+Android 端默认在 CPU 上跑 OCR 视觉塔，任何设备都能用但很慢。高通平台上可以把同一个视觉塔放到 Hexagon NPU 上跑，单块编码快约两个数量级。
+
+这条路径可选，且任何时候都不是正确性依赖：App 会先问驱动这块芯片是哪一代 DSP，再加载对应的一份 binary。没有匹配就静默留在 CPU，输出一致。
+
+```bash
+./scripts/download_qnn_binary.sh v85     # 每个架构约 868 MB
+```
+
+有哪些架构、怎么从已发布的 mmproj 自己生成、以及背后的数值验证，见
+[scripts/qnn/README.md](scripts/qnn/README.md)。该目录也放了转换流水线。

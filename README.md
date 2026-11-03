@@ -12,7 +12,7 @@ This demo runs the MiniCPM-V family of multimodal models fully on-device on iOS,
 * **MiniCPM5-1B** (text-only)
 * **MiniCPM5-2B** (text-only)
 * **VoxCPM2** (text-to-speech, TTS)
-* **MiniCPM-OCR 1.0** (document OCR — **iOS only**)
+* **MiniCPM-OCR 1.0** (document OCR — iOS & Android)
 
 This repository contains three on-device demos for MiniCPM-V (multimodal LLM) running fully locally via `llama.cpp`:
 
@@ -319,7 +319,7 @@ VoxCPM2 supports 30+ languages and 9 Chinese dialects. It can generate speech fr
 
 After downloading, place both `.gguf` files in the app's **Documents** directory (iOS) or in the per-model folder under `{ExternalFilesDir}/models/` (Android / HarmonyOS). You can also download them directly inside the app via **Model Manager**. Once models are downloaded, select VoxCPM2 and the app switches to the TTS interface automatically.
 
-### 2.8 MiniCPM-OCR 1.0 Files (document OCR, iOS only)
+### 2.8 MiniCPM-OCR 1.0 Files (document OCR, iOS & Android)
 
 MiniCPM-OCR 1.0 turns a photo, screenshot or PDF page into Markdown: it detects layout blocks first, then runs the vision-language model on each crop and stitches the results back into reading order (headings, paragraphs, tables, formulas and seals).
 
@@ -353,4 +353,25 @@ Documents/
 
 Then select **MiniCPM-OCR 1.0** in Settings; the app switches to the OCR interface. Downloads are MD5-checked before use, so a truncated transfer is rejected instead of silently failing at load time.
 
-> Building from source additionally requires `onnxruntime.xcframework` — see §1.1.3.
+On Android the three files go to `{ExternalFilesDir}/models/minicpm-ocr-1.0/`, and the same **Download All** entry in Model Manager fetches them. ONNX Runtime comes from Maven there, so there is nothing to fetch by hand.
+
+> Building the iOS app from source additionally requires `onnxruntime.xcframework` — see §1.1.3.
+
+#### Optional: Hexagon NPU acceleration (Android)
+
+The Android client runs the OCR vision tower on the CPU by default, which is
+correct everywhere but slow. On Qualcomm parts the same tower can run on the
+Hexagon NPU from a precompiled QNN context binary, about two orders of magnitude
+faster per crop.
+
+This is opt-in and never a correctness dependency: the app asks the driver which
+DSP generation the device has and loads the matching binary. If there is no
+match it silently stays on the CPU and produces the same output.
+
+```bash
+./scripts/download_qnn_binary.sh v85     # ~868 MB per architecture
+```
+
+See [scripts/qnn/README.md](scripts/qnn/README.md) for which generations exist,
+how the binaries are built from the published mmproj, and the numerical checks
+behind them. That directory also holds the conversion pipeline.

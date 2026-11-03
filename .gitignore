@@ -117,3 +117,10 @@ MiniCPM-V-demo/thirdparty/*_llama.xcframework/
 
 # VSCode per-user / local absolute paths
 .vscode/
+
+# QNN context binaries for the OCR vision tower: ~868 MB each, per DSP
+# architecture, and useless without Qualcomm's QNN runtime. Same rule as
+# llama.xcframework: fetch with scripts/download_qnn_binary.sh, or build them
+# yourself from scripts/qnn/. The QNN headers and .so files come from the QAIRT
+# SDK and are ignored with the rest of jniLibs.
+scripts/qnn/*.bin

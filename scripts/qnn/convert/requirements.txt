@@ -1,0 +1,13 @@
+# Pinned to what QAIRT 2.51.200's converter actually imports.
+# onnx must stay 1.18.x: QAIRT's onnx/util.py reads `onnx.version.version`,
+# an attribute that onnx 1.23 removed, so 1.23 fails before parsing the model.
+onnx==1.18.0
+numpy
+pyyaml
+packaging
+
+# For the export/verify steps only.
+torch
+onnxruntime
+gguf
+pillow
