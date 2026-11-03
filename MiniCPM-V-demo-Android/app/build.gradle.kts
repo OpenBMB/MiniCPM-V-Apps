@@ -23,8 +23,8 @@ android {
         // to the WebP icons in mipmap-{m,h,xh,xxh,xxxh}dpi/.
         minSdk = 24
         targetSdk = 36
-        versionCode = 17
-        versionName = "2.5"
+        versionCode = 18
+        versionName = "2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -45,8 +45,6 @@ android {
                 arguments += "-DLLAMA_CURL=OFF"
                 // 16 KB page size. NDK r27 still defaults to 4 KB LOAD alignment.
                 arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
-                // GPU inference. Paths are filled in by app/src/main/cpp/CMakeLists.txt.
-                arguments += "-DGGML_VULKAN=ON"
             }
         }
     }
@@ -64,6 +62,9 @@ android {
                 keyAlias = providers.gradleProperty("MINICPMV_KEY_ALIAS").orNull
                 keyPassword = providers.gradleProperty("MINICPMV_KEY_PASSWORD").orNull
             }
+            // AGP leaves v3 off by default, which makes `apksigner verify`
+            // report it missing; Play and most OEM installers want it.
+            enableV3Signing = true
         }
     }
 

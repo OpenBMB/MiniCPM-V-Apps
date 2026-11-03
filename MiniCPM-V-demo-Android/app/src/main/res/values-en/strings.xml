@@ -121,6 +121,7 @@
     <!-- LlamaEngine download progress -->
     <string name="source_direct">Direct</string>
     <string name="download_race_start">%1$s multi-source race started…</string>
+    <string name="download_qnn_start">Downloading NPU acceleration pack %1$s (~868 MB, optional)…</string>
     <string name="download_all_complete">All model files downloaded!</string>
     <string name="download_verifying_existing">Verifying existing %1$s…</string>
     <string name="download_verifying_existing_src">[%1$s] Verifying existing %2$s…</string>

@@ -37,13 +37,16 @@ data class ModelInfo(
     val acousticFileName: String? = null,
     val layoutFileName: String? = null,
     /**
-     * Optional QNN context binary for the OCR vision tower. Registered here so
-     * the artifact has a declared home, but it has **no** remote path yet: it
-     * is an offline QAIRT conversion that has to be produced per SoC, so the
-     * downloader never fetches it and the app falls back to the ggml vision
-     * tower whenever the file is absent. See QnnVit for the manual push.
+     * Optional QNN context binaries for the OCR vision tower, one per Hexagon
+     * generation. Keyed by the QAIRT arch number (85, 75, 73, 69) and valued by
+     * the md5 of that file. The downloader picks the entry matching this
+     * device, so a build can carry support for several SoCs and each device only
+     * pays for the one it can run. Empty disables the NPU path entirely; OCR
+     * then stays on the ggml vision tower.
      */
-    val qnnVitFileName: String? = null,
+    val qnnArchMd5: Map<Int, String> = emptyMap(),
+    /** Directory the binaries live under on the model repo, with a trailing slash. */
+    val qnnRemoteDir: String? = null,
     val hfRepo: String? = null,
     val msRepo: String? = null,
     val hfBranch: String = "main",
@@ -206,7 +209,13 @@ data class ModelInfo(
                 ggufFileName = "MiniCPM-OCR-1_0-Q4_K_M.gguf",
                 mmprojFileName = "MiniCPM-OCR-1_0-mmproj-F16-4x.gguf",
                 layoutFileName = "PPDocLayoutV3_fix4.onnx",
-                qnnVitFileName = "vit_linear_1024.bin",
+                qnnArchMd5 = mapOf(
+                    85 to "8d4b0ec720cefa30dd67810f834a30ca",
+                    75 to "f4e0a538d7b96d34d539e632251a952f",
+                    73 to "c5a9d57decaf306378f0c8d193eee223",
+                    69 to "481fe8fa0233f894e27261bfc91c4a71",
+                ),
+                qnnRemoteDir = "MiniCPM-OCR-1.0/",
                 hfRepo = "tc-mb/MiniCPM-V-Apps-gguf",
                 msRepo = "zerg13/MiniCPM-V-Apps-gguf",
                 ggufRemoteName = "MiniCPM-OCR-1.0/MiniCPM-OCR-1_0-Q4_K_M.gguf",

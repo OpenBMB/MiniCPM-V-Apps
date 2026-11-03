@@ -20,6 +20,11 @@ Java_com_example_minicpm_1v_1demo_QnnVit_nativeInit(JNIEnv * env, jclass, jstrin
     return rc;
 }
 
+extern "C" JNIEXPORT jint JNICALL
+Java_com_example_minicpm_1v_1demo_QnnVit_nativeProbeArch(JNIEnv *, jclass) {
+    return qnnvit::probe_arch();
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_example_minicpm_1v_1demo_QnnVit_nativeReady(JNIEnv *, jclass) {
     return qnnvit::ready() ? JNI_TRUE : JNI_FALSE;

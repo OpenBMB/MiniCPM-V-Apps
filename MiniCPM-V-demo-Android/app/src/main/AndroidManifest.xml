@@ -40,21 +40,19 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.MiniCPMVdemo">
 
-        <!-- FastRPC transport into the cDSP; libQnnHtpV85Stub.so needs it.
-             Must be an <application> child — AAPT rejects it under <manifest>. -->
+        <!-- FastRPC transport into the cDSP, used by the QNN HTP backend.
+             Must be an <application> child - AAPT rejects it under <manifest>. -->
         <uses-native-library
             android:name="libcdsprpc.so"
             android:required="false" />
-        <!-- QNN HTP runtime, for when the ViT runs on the NPU. Bundled copies are
-             used (2.51.200), not the vendor partition's. -->
+        <!-- QNN HTP runtime, for when the ViT runs on the NPU. The bundled
+             copies are used, not the vendor partition's, and they must stay on
+             the same QAIRT build as the context binaries. -->
         <uses-native-library
             android:name="libQnnHtp.so"
             android:required="false" />
         <uses-native-library
             android:name="libQnnSystem.so"
-            android:required="false" />
-        <uses-native-library
-            android:name="libQnnHtpV85Stub.so"
             android:required="false" />
 
         <activity

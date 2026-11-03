@@ -29,6 +29,8 @@
 
 #include "QNN/QnnInterface.h"
 #include "QNN/QnnTypes.h"
+#include "QNN/QnnDevice.h"
+#include "QNN/HTP/QnnHtpDevice.h"
 #include "QNN/System/QnnSystemInterface.h"
 
 #define TAG "QnnVit"
@@ -443,6 +445,81 @@ void release(Session & s) {
 bool ready() {
     std::lock_guard<std::mutex> lock(g_s.mu);
     return g_s.graph != nullptr;
+}
+
+int probe_arch() {
+    std::lock_guard<std::mutex> lock(g_s.mu);
+
+    void * lib = dlopen("libQnnHtp.so", RTLD_NOW | RTLD_GLOBAL);
+    if (!lib) {
+        LOGE("probe: dlopen libQnnHtp.so: %s", dlerror());
+        return 0;
+    }
+
+    auto get_providers = reinterpret_cast<Qnn_ErrorHandle_t (*)(const QnnInterface_t ***, uint32_t *)>(
+        dlsym(lib, "QnnInterface_getProviders"));
+    if (!get_providers) {
+        LOGE("probe: no QnnInterface_getProviders");
+        return 0;
+    }
+
+    const QnnInterface_t ** providers = nullptr;
+    uint32_t n = 0;
+    if (get_providers(&providers, &n) != QNN_SUCCESS || n == 0) {
+        LOGE("probe: QnnInterface_getProviders failed");
+        return 0;
+    }
+    const QNN_INTERFACE_VER_TYPE * qnn = nullptr;
+    for (uint32_t i = 0; i < n; ++i) {
+        const auto & v = providers[i]->apiVersion.coreApiVersion;
+        if (v.major == QNN_API_VERSION_MAJOR && v.minor >= QNN_API_VERSION_MINOR) {
+            qnn = &providers[i]->QNN_INTERFACE_VER_NAME;
+        }
+    }
+    if (!qnn) {
+        LOGE("probe: no provider with the expected API version");
+        return 0;
+    }
+
+    int arch = 0;
+    Qnn_BackendHandle_t backend = nullptr;
+    Qnn_DeviceHandle_t device = nullptr;
+
+    if (qnn->backendCreate(nullptr, nullptr, &backend) != QNN_SUCCESS) {
+        LOGE("probe: backendCreate failed");
+        return 0;
+    }
+    if (qnn->deviceCreate(nullptr, nullptr, &device) != QNN_SUCCESS) {
+        LOGE("probe: deviceCreate failed");
+        qnn->backendFree(backend);
+        return 0;
+    }
+
+    const QnnDevice_PlatformInfo_t * info = nullptr;
+    if (qnn->deviceGetPlatformInfo(nullptr, &info) == QNN_SUCCESS && info) {
+        // These are driver-owned structs; only read the layout whose version
+        // field actually says so.
+        if (info->version == QNN_DEVICE_PLATFORM_INFO_VERSION_1) {
+            for (uint32_t i = 0; i < info->v1.numHwDevices && arch == 0; ++i) {
+                const auto & hw = info->v1.hwDevices[i];
+                if (hw.version != QNN_DEVICE_HARDWARE_DEVICE_INFO_VERSION_1) {
+                    continue;
+                }
+                auto * ext = reinterpret_cast<const QnnHtpDevice_DeviceInfoExtension_t *>(
+                    hw.v1.deviceInfoExtension);
+                if (ext && ext->devType == QNN_HTP_DEVICE_TYPE_ON_CHIP) {
+                    arch = static_cast<int>(ext->onChipDevice.arch);
+                }
+            }
+        }
+        qnn->deviceFreePlatformInfo(nullptr, info);
+    }
+
+    qnn->deviceFree(device);
+    qnn->backendFree(backend);
+
+    LOGI("probe: Hexagon arch = %d", arch);
+    return arch;
 }
 
 int init(const char * skel_dir, const char * context_binary) {

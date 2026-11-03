@@ -27,6 +27,16 @@ constexpr int kCanvasRows = kPatches / 4;                // 256 merged rows
 // Returns 0 on success, negative on failure (see the log for the reason).
 int init(const char * skel_dir, const char * context_binary);
 
+// Hexagon generation of this device, as the QAIRT arch number (69, 73, 75, 85,
+// 89 ...), or 0 when it cannot be determined. A context binary is compiled for
+// exactly one generation, so the caller uses this to pick the matching file
+// instead of assuming.
+//
+// Opens the backend only; it never touches a context binary. Still, callers
+// must confirm a FastRPC transport exists first: deviceCreate() on a part with
+// no Hexagon has been observed to abort the process rather than return an error.
+int probe_arch();
+
 bool ready();
 
 void shutdown();

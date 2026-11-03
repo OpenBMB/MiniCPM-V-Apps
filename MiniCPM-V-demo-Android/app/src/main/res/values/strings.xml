@@ -124,6 +124,7 @@
     <!-- LlamaEngine download progress -->
     <string name="source_direct">直链</string>
     <string name="download_race_start">%1$s 多源 race 启动…</string>
+    <string name="download_qnn_start">正在下载 NPU 加速包 %1$s（约 868 MB，可跳过）…</string>
     <string name="download_all_complete">所有模型文件下载完成!</string>
     <string name="download_verifying_existing">校验已存在的 %1$s …</string>
     <string name="download_verifying_existing_src">[%1$s] 校验已存在的 %2$s …</string>

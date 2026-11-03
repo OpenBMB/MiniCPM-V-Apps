@@ -168,10 +168,26 @@ class LlamaEngine private constructor(
          * declares none. Never part of [modelsExist]: the file is optional and
          * its absence only downgrades OCR to the ggml vision tower.
          */
+        /**
+         * Directory the QNN context binaries live in, or null when the selected
+         * model declares none. The file inside is per Hexagon generation and is
+         * resolved by [QnnVit]; this only answers "where".
+         */
+        fun qnnDirPath(context: Context): String? {
+            val model = getSelectedModel(context)
+            if (model.qnnArchMd5.isEmpty()) return null
+            return modelDirFor(context, model)
+        }
+
+        /**
+         * Legacy single-file location, kept so `QnnVit.findBinary` can still see
+         * a binary from before multi-arch support. Returns null when the model
+         * declares no QNN artifact at all.
+         */
         fun qnnVitPath(context: Context): String? {
             val model = getSelectedModel(context)
-            val name = model.qnnVitFileName ?: return null
-            return File(modelDirFor(context, model), name).absolutePath
+            if (model.qnnArchMd5.isEmpty()) return null
+            return File(modelDirFor(context, model), QnnVit.DEFAULT_BINARY_NAME).absolutePath
         }
 
         fun modelsExist(context: Context): Boolean {
@@ -474,16 +490,40 @@ class LlamaEngine private constructor(
             if (model.isOcr && model.layoutFileName != null) {
                 files.add(FileSpec(model.layoutFileName, layoutSources, model.layoutMd5))
             }
-            // model.qnnVitFileName is deliberately absent: the QNN context binary
-            // is a per-SoC offline conversion with no upstream object yet (see
-            // ModelInfo). QnnVit picks up a manually pushed copy, and OCR runs on
-            // the ggml vision tower when it is missing.
 
             val racedLabel = files.first().sources.joinToString("+") { it.label }
             onProgress(context.getString(R.string.download_race_start, racedLabel))
 
             for (file in files) {
                 downloadFileMultiSource(context, dir, file.name, file.sources, file.md5, onProgress)
+            }
+
+            // The QNN context binary is optional and per-Hexagon-generation, so
+            // it is fetched last, only when this device could actually use one,
+            // and a failure never blocks the model: OCR simply stays on the CPU
+            // tower. 868 MiB is a large tail, so it is announced separately
+            // rather than hidden inside the model progress.
+            if (model.isOcr && model.hasHfMsSources) {
+                val arch = QnnVit.deviceArch(context)
+                if (arch != null && model.qnnArchMd5.containsKey(arch)) {
+                    val name = QnnVit.binaryNameFor(arch)
+                    val remote = (model.qnnRemoteDir ?: "") + name
+                    val hfBase = "https://huggingface.co/${model.hfRepo}/resolve/${model.hfBranch}"
+                    val qnnSources = listOf(
+                        FileSource("HuggingFace", URL("$hfBase/$remote")),
+                        FileSource("ModelScope", modelScopeFileUrl(model, remote)),
+                    )
+                    onProgress(context.getString(R.string.download_qnn_start, name))
+                    try {
+                        downloadFileMultiSource(context, dir, name, qnnSources,
+                                                model.qnnArchMd5[arch], onProgress)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        Log.w(TAG, "QNN binary for Hexagon v$arch not fetched; " +
+                                "OCR will use the ggml vision tower", e)
+                    }
+                }
             }
 
             onProgress(context.getString(R.string.download_all_complete))
