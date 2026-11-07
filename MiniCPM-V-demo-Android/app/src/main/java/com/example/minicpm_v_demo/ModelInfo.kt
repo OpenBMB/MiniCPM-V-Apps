@@ -158,6 +158,32 @@ data class ModelInfo(
                 hfRepo = "openbmb/MiniCPM5-2B-GGUF",
                 msRepo = "OpenBMB/MiniCPM5-2B-GGUF"
             ),
+            // MiniCPM-V-4.7 35B-A3B: MoE multimodal flagship, same HF (primary)
+            // + ModelScope (backup) racing topology as 4.6. The upstream
+            // `mmproj-model-f16.gguf` carries projector_type=minicpmv4_7,
+            // which llama.cpp-omni's mtmd already accepts. No MD5 on purpose:
+            // HF / ModelScope serve via git-LFS which already provides
+            // hash-based integrity checks.
+            ModelInfo(
+                id = "minicpm-v-4_7-35b-a3b",
+                displayName = "MiniCPM-V-4.7-35B-A3B (Q4_K_M)",
+                descriptionResName = "model_desc_v47_35b_a3b",
+                ggufFileName = "MiniCPM-V-4_7-35B-A3B-Q4_K_M.gguf",
+                mmprojFileName = "mmproj-model-f16.gguf",
+                hfRepo = "openbmb/MiniCPM-V-4.7-35B-A3B-gguf",
+                msRepo = "OpenBMB/MiniCPM-V-4.7-35B-A3B-gguf"
+            ),
+            // MiniCPM-V-4.7 1B: lightweight multimodal sibling of the 35B-A3B,
+            // same repo layout and projector type as above. No MD5 on purpose.
+            ModelInfo(
+                id = "minicpm-v-4_7-1b",
+                displayName = "MiniCPM-V-4.7-1B (Q4_K_M)",
+                descriptionResName = "model_desc_v47_1b",
+                ggufFileName = "MiniCPM-V-4_7-1B-Q4_K_M.gguf",
+                mmprojFileName = "mmproj-model-f16.gguf",
+                hfRepo = "openbmb/MiniCPM-V-4.7-1B-gguf",
+                msRepo = "OpenBMB/MiniCPM-V-4.7-1B-gguf"
+            ),
             // VoxCPM2 — text-to-speech model, ~2B params, 48kHz output.
             // Two GGUF files: a BaseLM (the MiniCPM-4 based language model)
             // and an Acoustic bundle (FSQ + ResidualLM + LocEnc + LocDiT +

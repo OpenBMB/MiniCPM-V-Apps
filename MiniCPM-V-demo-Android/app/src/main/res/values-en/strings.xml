@@ -105,6 +105,8 @@
     <string name="model_desc_v46">Next-gen multimodal model with image understanding (1.2B)</string>
     <string name="model_desc_minicpm5">Lightweight text-only model (1B)</string>
     <string name="model_desc_minicpm5_2b">Text-only model (2B)</string>
+    <string name="model_desc_v47_35b_a3b">Flagship MoE multimodal model with image understanding (35B-A3B)</string>
+    <string name="model_desc_v47_1b">Next-gen lightweight multimodal model with image understanding (1B)</string>
     <string name="model_desc_voxcpm2">Multilingual TTS with voice design and cloning (2B)</string>
 
     <!-- VideoFrameExtractor -->
