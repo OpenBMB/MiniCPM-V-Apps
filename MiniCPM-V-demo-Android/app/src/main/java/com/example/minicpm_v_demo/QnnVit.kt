@@ -194,15 +194,7 @@ object QnnVit {
 
         return try {
             System.loadLibrary("minicpm_v_demo")
-            arch = nativeProbeArch()
-            if (arch != candidate) {
-                // The driver disagrees with the property we gated on, so the
-                // binary and skeleton on offer are for the wrong generation.
-                Log.w(TAG, "driver reports Hexagon v$arch, expected v$candidate; " +
-                        "staying on the ggml vision tower")
-                state = State.FAILED
-                return false
-            }
+            arch = candidate
             val bin = findBinary(context, arch)
             if (bin == null) {
                 Log.i(TAG, "no context binary for Hexagon v$arch; " +
@@ -222,7 +214,7 @@ object QnnVit {
             System.loadLibrary("QnnHtp")
             System.loadLibrary("QnnSystem")
 
-            val rc = nativeInit(skelDir.absolutePath, bin.absolutePath)
+            val rc = nativeInit(skelDir.absolutePath, bin.absolutePath, arch)
             state = if (rc == 0) State.READY else State.FAILED
             Log.i(TAG, "NPU init arch=v$arch rc=$rc state=$state")
             state == State.READY
@@ -300,8 +292,7 @@ object QnnVit {
         }
     }
 
-    private external fun nativeProbeArch(): Int
-    private external fun nativeInit(skelDir: String, binPath: String): Int
+    private external fun nativeInit(skelDir: String, binPath: String, arch: Int): Int
     private external fun nativeReady(): Boolean
     private external fun nativeShutdown()
     private external fun nativeEncode(rgba: ByteArray, posW: Int, posH: Int): Int

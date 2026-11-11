@@ -11,18 +11,18 @@
 
 extern "C" JNIEXPORT jint JNICALL
 Java_com_example_minicpm_1v_1demo_QnnVit_nativeInit(JNIEnv * env, jclass, jstring jSkelDir,
-                                                    jstring jBinPath) {
+                                                    jstring jBinPath, jint jArch) {
     const char * skel = env->GetStringUTFChars(jSkelDir, nullptr);
     const char * bin = env->GetStringUTFChars(jBinPath, nullptr);
-    const int rc = qnnvit::init(skel, bin);
+    const int rc = qnnvit::init(skel, bin, (int) jArch);
     env->ReleaseStringUTFChars(jSkelDir, skel);
     env->ReleaseStringUTFChars(jBinPath, bin);
     return rc;
 }
 
-extern "C" JNIEXPORT jint JNICALL
-Java_com_example_minicpm_1v_1demo_QnnVit_nativeProbeArch(JNIEnv *, jclass) {
-    return qnnvit::probe_arch();
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_example_minicpm_1v_1demo_QnnVit_nativeRuntimeAvailable(JNIEnv *, jclass) {
+    return qnnvit::runtime_available() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT jboolean JNICALL

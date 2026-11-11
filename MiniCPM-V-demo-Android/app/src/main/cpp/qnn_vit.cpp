@@ -447,90 +447,24 @@ bool ready() {
     return g_s.graph != nullptr;
 }
 
-int probe_arch() {
-    std::lock_guard<std::mutex> lock(g_s.mu);
-
-    void * lib = dlopen("libQnnHtp.so", RTLD_NOW | RTLD_GLOBAL);
-    if (!lib) {
-        LOGE("probe: dlopen libQnnHtp.so: %s", dlerror());
-        return 0;
-    }
-
-    auto get_providers = reinterpret_cast<Qnn_ErrorHandle_t (*)(const QnnInterface_t ***, uint32_t *)>(
-        dlsym(lib, "QnnInterface_getProviders"));
-    if (!get_providers) {
-        LOGE("probe: no QnnInterface_getProviders");
-        return 0;
-    }
-
-    const QnnInterface_t ** providers = nullptr;
-    uint32_t n = 0;
-    if (get_providers(&providers, &n) != QNN_SUCCESS || n == 0) {
-        LOGE("probe: QnnInterface_getProviders failed");
-        return 0;
-    }
-    const QNN_INTERFACE_VER_TYPE * qnn = nullptr;
-    for (uint32_t i = 0; i < n; ++i) {
-        const auto & v = providers[i]->apiVersion.coreApiVersion;
-        if (v.major == QNN_API_VERSION_MAJOR && v.minor >= QNN_API_VERSION_MINOR) {
-            qnn = &providers[i]->QNN_INTERFACE_VER_NAME;
-        }
-    }
-    if (!qnn) {
-        LOGE("probe: no provider with the expected API version");
-        return 0;
-    }
-
-    int arch = 0;
-    Qnn_BackendHandle_t backend = nullptr;
-    Qnn_DeviceHandle_t device = nullptr;
-
-    if (qnn->backendCreate(nullptr, nullptr, &backend) != QNN_SUCCESS) {
-        LOGE("probe: backendCreate failed");
-        return 0;
-    }
-    if (qnn->deviceCreate(nullptr, nullptr, &device) != QNN_SUCCESS) {
-        LOGE("probe: deviceCreate failed");
-        qnn->backendFree(backend);
-        return 0;
-    }
-
-    const QnnDevice_PlatformInfo_t * info = nullptr;
-    if (qnn->deviceGetPlatformInfo(nullptr, &info) == QNN_SUCCESS && info) {
-        // These are driver-owned structs; only read the layout whose version
-        // field actually says so.
-        if (info->version == QNN_DEVICE_PLATFORM_INFO_VERSION_1) {
-            for (uint32_t i = 0; i < info->v1.numHwDevices && arch == 0; ++i) {
-                const auto & hw = info->v1.hwDevices[i];
-                if (hw.version != QNN_DEVICE_HARDWARE_DEVICE_INFO_VERSION_1) {
-                    continue;
-                }
-                auto * ext = reinterpret_cast<const QnnHtpDevice_DeviceInfoExtension_t *>(
-                    hw.v1.deviceInfoExtension);
-                if (ext && ext->devType == QNN_HTP_DEVICE_TYPE_ON_CHIP) {
-                    arch = static_cast<int>(ext->onChipDevice.arch);
-                }
-            }
-        }
-        qnn->deviceFreePlatformInfo(nullptr, info);
-    }
-
-    qnn->deviceFree(device);
-    qnn->backendFree(backend);
-
-    LOGI("probe: Hexagon arch = %d", arch);
-    return arch;
+bool runtime_available() {
+    return dlopen("libQnnHtp.so", RTLD_NOW | RTLD_GLOBAL) != nullptr;
 }
 
-int init(const char * skel_dir, const char * context_binary) {
+
+int init(const char * skel_dir, const char * context_binary, int arch) {
     std::lock_guard<std::mutex> lock(g_s.mu);
     if (g_s.graph) {
         return 0;
     }
+    if (arch <= 0) {
+        LOGE("init: no Hexagon generation supplied");
+        return -1;
+    }
 
-    // The DSP skel must be the same 2.51.200 build as the host libraries; the
-    // vendor partition carries 2.47.6, which fails with an undefined
-    // `qnn_2_51_200_skel_handle_invoke`. It lives in app storage because its
+    // The DSP skel must be the same QAIRT build as the host libraries; the
+    // vendor partition carries an older one, which fails with an undefined
+    // `qnn_2_51_XX_skel_handle_invoke`. It lives in app storage because its
     // 0x1000 LOAD alignment breaks 16 KB page compatibility inside jniLibs.
     setenv("ADSP_LIBRARY_PATH", skel_dir, 1);
     LOGI("ADSP_LIBRARY_PATH=%s", skel_dir);
@@ -583,20 +517,62 @@ int init(const char * skel_dir, const char * context_binary) {
     }
     const QNN_SYSTEM_INTERFACE_VER_TYPE & sys = sys_providers[0]->QNN_SYSTEM_INTERFACE_VER_NAME;
 
+    // logCreate is the first call that starts the HTP provider, and that
+    // provider identifies the SoC by reading /sys/devices/soc0/soc_id. Where
+    // SELinux denies that read (stock Android), it fails here and nothing
+    // downstream can recover, because backendCreate repeats the same lookup.
     if (qnn.logCreate(log_cb, QNN_LOG_LEVEL_WARN, &g_s.logger) != QNN_SUCCESS) {
-        LOGE("logCreate failed");
+        LOGE("logCreate failed: the QNN provider could not start (SoC not readable?)");
         return -1;
     }
     if (qnn.backendCreate(g_s.logger, nullptr, &g_s.backend) != QNN_SUCCESS) {
         LOGE("backendCreate failed");
         return -1;
     }
-    if (qnn.deviceCreate(g_s.logger, nullptr, &g_s.device) != QNN_SUCCESS) {
-        // On Android 17 this only happens when the package is missing from
-        // `dumpsys npu` Priorities; a fresh install re-registers it.
-        LOGE("deviceCreate failed - is the package listed in `dumpsys npu`?");
+    // Declare the SoC up front instead of letting the driver look it up.
+    // The lookup reads /sys/devices/soc0/soc_id, which SELinux denies to
+    // unprivileged apps on stock Android, so the probe path fails there with
+    // "No Snapdragon SOC detected". Filling the platform info ourselves is the
+    // offline path the QNN headers describe and skips that read entirely.
+    static QnnHtpDevice_DeviceInfoExtension_t dev_ext = {};
+    dev_ext.devType              = QNN_HTP_DEVICE_TYPE_ON_CHIP;
+    dev_ext.onChipDevice.vtcmSize        = 8;
+    dev_ext.onChipDevice.socModel        = 0;   // unknown; arch routes the graph
+    dev_ext.onChipDevice.signedPdSupport = false;
+    dev_ext.onChipDevice.dlbcSupport     = false;
+    dev_ext.onChipDevice.arch            = static_cast<QnnHtpDevice_Arch_t>(arch);
+
+    static QnnDevice_CoreInfo_t cores[1] = {};
+    cores[0].version              = QNN_DEVICE_CORE_INFO_VERSION_1;
+    cores[0].v1.coreId            = QNN_DEVICE_DEFAULT_CORE_ID;
+    cores[0].v1.coreType          = 0;
+    cores[0].v1.coreInfoExtension = nullptr;
+
+    static QnnDevice_HardwareDeviceInfo_t hw_dev = {};
+    hw_dev.version                = QNN_DEVICE_HARDWARE_DEVICE_INFO_VERSION_1;
+    hw_dev.v1.deviceId            = QNN_DEVICE_DEFAULT_DEVICE_ID;
+    hw_dev.v1.deviceType          = 0;
+    hw_dev.v1.numCores            = 1;
+    hw_dev.v1.cores               = cores;
+    hw_dev.v1.deviceInfoExtension = reinterpret_cast<QnnDevice_DeviceInfoExtension_t>(&dev_ext);
+
+    static QnnDevice_PlatformInfo_t platform = {};
+    platform.version         = QNN_DEVICE_PLATFORM_INFO_VERSION_1;
+    platform.v1.numHwDevices = 1;
+    platform.v1.hwDevices    = &hw_dev;
+
+    static QnnDevice_Config_t dev_cfg[2] = {};
+    dev_cfg[0].option       = QNN_DEVICE_CONFIG_OPTION_PLATFORM_INFO;
+    dev_cfg[0].hardwareInfo = &platform;
+    dev_cfg[1].option       = QNN_DEVICE_CONFIG_OPTION_UNDEFINED;
+
+    const QnnDevice_Config_t * dev_cfg_ptr[2] = { &dev_cfg[0], nullptr };
+
+    if (qnn.deviceCreate(g_s.logger, dev_cfg_ptr, &g_s.device) != QNN_SUCCESS) {
+        LOGE("deviceCreate failed for Hexagon v%d", arch);
         return -1;
     }
+    LOGI("device created for Hexagon v%d", arch);
 
     if (!read_file(context_binary, g_s.binary)) {
         return -1;

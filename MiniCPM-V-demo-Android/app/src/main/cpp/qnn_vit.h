@@ -23,19 +23,19 @@ constexpr int kLinearW = kPatches * kPatch;              // 14336
 constexpr int kCanvasRows = kPatches / 4;                // 256 merged rows
 
 // Loads the context binary and brings the HTP device up. Safe to call twice;
-// the second call is a no-op. `skel_dir` must contain libQnnHtpV85Skel.so.
-// Returns 0 on success, negative on failure (see the log for the reason).
-int init(const char * skel_dir, const char * context_binary);
-
-// Hexagon generation of this device, as the QAIRT arch number (69, 73, 75, 85,
-// 89 ...), or 0 when it cannot be determined. A context binary is compiled for
-// exactly one generation, so the caller uses this to pick the matching file
-// instead of assuming.
+// the second call is a no-op. `skel_dir` must contain libQnnHtpV<arch>Skel.so.
 //
-// Opens the backend only; it never touches a context binary. Still, callers
-// must confirm a FastRPC transport exists first: deviceCreate() on a part with
-// no Hexagon has been observed to abort the process rather than return an error.
-int probe_arch();
+// `arch` is the Hexagon generation (69, 73, 75, 85 ...) and is passed in rather
+// than probed: on stock Android the driver identifies the SoC by reading
+// /sys/devices/soc0/soc_id, and SELinux denies that to unprivileged apps, so
+// QNN reports "No Snapdragon SOC detected" and refuses to start. Declaring the
+// architecture up front skips that lookup entirely.
+//
+// Returns 0 on success, negative on failure (see the log for the reason).
+int init(const char * skel_dir, const char * context_binary, int arch);
+
+// True when the QNN HTP runtime can be loaded at all. Does not touch the DSP.
+bool runtime_available();
 
 bool ready();
 
