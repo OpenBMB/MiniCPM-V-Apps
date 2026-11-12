@@ -598,12 +598,22 @@ export class LlamaEngine {
     return `${LlamaEngine.modelDirFor(context, m)}/${m.acousticFileName}`;
   }
 
+  static layoutPath(context: common.Context): string {
+    const m = LlamaEngine.getSelectedModel(context);
+    if (m.layout === null) return '';
+    return `${LlamaEngine.modelDirFor(context, m)}/${m.layout.fileName}`;
+  }
+
   static modelsExist(context: common.Context): boolean {
     if (!fs.accessSync(LlamaEngine.modelPath(context))) return false;
     const m = LlamaEngine.getSelectedModel(context);
     if (m.isTts) {
       const acoustic = LlamaEngine.acousticPath(context);
       return !!acoustic && fs.accessSync(acoustic);
+    }
+    if (m.layout !== null) {
+      const layout = LlamaEngine.layoutPath(context);
+      return !!layout && fs.accessSync(layout) && fs.accessSync(LlamaEngine.mmprojPath(context));
     }
     if (m.isTextOnly) return true;
     return fs.accessSync(LlamaEngine.mmprojPath(context));

@@ -12,6 +12,31 @@
 // pre-release files in the per-model directory) but the upstream object is
 // `mmproj-model-f16.gguf`.
 
+/**
+ * Extra model file used by the OCR pipeline: the PP-DocLayoutV3 ONNX graph.
+ *
+ * Kept apart from the gguf triplet because it is not a llama.cpp artefact at
+ * all - @ohos/onnxruntime consumes it.
+ */
+export class LayoutModelFile {
+  readonly fileName: string;
+  readonly remoteName: string | null;
+  readonly directUrl: string | null;
+  readonly md5: string | null;
+
+  constructor(fileName: string, remoteName: string | null = null,
+              directUrl: string | null = null, md5: string | null = null) {
+    this.fileName = fileName;
+    this.remoteName = remoteName;
+    this.directUrl = directUrl;
+    this.md5 = md5;
+  }
+
+  remotePath(): string {
+    return this.remoteName ?? this.fileName;
+  }
+}
+
 export class ModelInfo {
   readonly id: string;
   readonly displayName: string;
@@ -32,9 +57,15 @@ export class ModelInfo {
   readonly ggufMd5: string | null;
   readonly mmprojMd5: string | null;
   readonly acousticMd5: string | null;
+  readonly layout: LayoutModelFile | null;
 
   get isTextOnly(): boolean {
     return !this.mmprojFileName && !this.acousticFileName;
+  }
+
+  /** True for models that run the OCR pipeline instead of plain chat. */
+  get isOcr(): boolean {
+    return this.layout !== null;
   }
 
   /** MiniCPM5 (text) and MiniCPM-V-4.6 expose a thinking toggle. */
@@ -66,7 +97,8 @@ export class ModelInfo {
     directAcousticUrl: string | null = null,
     ggufMd5: string | null = null,
     mmprojMd5: string | null = null,
-    acousticMd5: string | null = null
+    acousticMd5: string | null = null,
+    layout: LayoutModelFile | null = null
   ) {
     this.id = id;
     this.displayName = displayName;
@@ -87,6 +119,7 @@ export class ModelInfo {
     this.ggufMd5 = ggufMd5;
     this.mmprojMd5 = mmprojMd5;
     this.acousticMd5 = acousticMd5;
+    this.layout = layout;
   }
 
   /** Path segment to request on HF/MS for the gguf, falling back to local name. */
@@ -202,6 +235,33 @@ export const AVAILABLE_MODELS: ModelInfo[] = [
     'd8cd571526464d225187d326caa289be',
     null,                                                        // mmprojMd5
     '0f16229cfffe935102d21433f6969f8b'
+  ),
+  new ModelInfo(
+    'minicpm-ocr-1.0',
+    'MiniCPM-OCR 1.0 (Q4_K_M)',
+    'model_desc_ocr',
+    'MiniCPM-OCR-1_0-Q4_K_M.gguf',
+    'MiniCPM-OCR-1_0-mmproj-F16-4x.gguf',
+    '',
+    'tc-mb/MiniCPM-V-Apps-gguf',
+    'zerg13/MiniCPM-V-Apps-gguf',
+    'main',
+    'master',
+    'MiniCPM-OCR-1.0/MiniCPM-OCR-1_0-Q4_K_M.gguf',
+    'MiniCPM-OCR-1.0/MiniCPM-OCR-1_0-mmproj-F16-4x.gguf',
+    null,                                                        // acousticRemoteName
+    null,                                                        // directGgufUrl
+    null,                                                        // directMmprojUrl
+    null,                                                        // directAcousticUrl
+    '4f8f6f58429dc9a584c70c490a120dfd',
+    '5dc7d0b598700f10581bbbcc0e420056',
+    null,                                                        // acousticMd5
+    new LayoutModelFile(
+      'PPDocLayoutV3_fix4.onnx',
+      'MiniCPM-OCR-1.0/PPDocLayoutV3_fix4.onnx',
+      null,
+      'd1a03f12240c5ae0cad14155e6c2c41b'
+    )
   ),
 ];
 

@@ -167,7 +167,7 @@ The first launch will download the GGUF model files into the app's external stor
 Requirements:
 
 * DevEco Studio 5.0 or newer (with the HarmonyOS Native SDK / NDK)
-* A real device or emulator running HarmonyOS API 12+ (e.g. nova 14 vitality / Mate 60 / Pura 70)
+* A real device or emulator running HarmonyOS API 15+ (e.g. nova 14 vitality / Mate 60 / Pura 70). The OCR pipeline pulls in `@ohos/onnxruntime`, whose `@ohos/aki` dependency requires API 15; `build-profile.json5.example` therefore sets `compatibleSdkVersion` to `6.0.2(22)`
 * 64-bit ARM architecture (`arm64-v8a`)
 * Device RAM: see the per-model requirements in [Part 2](#part-2-gguf-model-files)
 
@@ -177,7 +177,9 @@ Build & run:
 2. `File` → `Project Structure` → `Signing Configs` and tick **Automatically generate signature** (requires a Huawei developer account; this only needs to be done once).
 3. Connect the device with USB debugging enabled, then click Run (the green triangle).
 
-After the first launch, open the in-app **Model Manager** and tap **Download**. You can also sideload model files via `hdc file send`; see `MiniCPM-V-demo-HarmonyOS/README_zh.md` for the expected directory layout.
+After the first launch, open the in-app **Model Manager**, pick a model and tap **Download**. App-sandbox paths are protected by SELinux, so `hdc file send` into `.../files/models/` is rejected on retail builds; the in-app downloader is the supported path.
+
+To try the OCR pipeline without picking a photo, open **Model Manager** → `MiniCPM-OCR 1.0` → **Download**, then tap **加载模型**; the OCR page has a **示例文档** button that runs the bundled `test_ticket.jpg` through layout detection and recognition.
 
 > The HarmonyOS port shares the exact same `llama.cpp-omni` submodule, model catalogue, HuggingFace / ModelScope download URLs and MD5 hashes with the iOS / Android demos.
 
@@ -206,7 +208,7 @@ Notes:
 * `mmproj` is the vision projector + ViT weights; it is shipped in **f16** because quantising the visual tower hurts perception quality noticeably more than quantising the LLM.
 * MiniCPM5-1B and MiniCPM5-2B are text-only models and do not need an `mmproj` file.
 * VoxCPM2 requires two GGUF files (BaseLM + Acoustic) and does not use an `mmproj` either — it is a pure TTS model.
-* MiniCPM-OCR 1.0 is a three-file model: the LLM, the 4x vision projector, **and** a separate PP-DocLayoutV3 ONNX layout detector. It is currently wired up in the **iOS demo only**; the Android and HarmonyOS clients do not have the OCR pipeline. Its `mmproj` is a 4x projector and is *not* interchangeable with the chat models' `mmproj`.
+* MiniCPM-OCR 1.0 is a three-file model: the LLM, the 4x vision projector, **and** a separate PP-DocLayoutV3 ONNX layout detector. It is wired up on **iOS, Android and HarmonyOS**. Its `mmproj` is a 4x projector and is *not* interchangeable with the chat models' `mmproj`.
 * MiniCPM-V 4.7 35B-A3B uses a **Q3_K** expert quant (`mix_q3gud_im`) rather than Q4, and its routed experts are split out of the main `.gguf` into a separate `experts/` directory. The **~16.6 GB** above is the main file + all 40 expert shards + `mmproj`; plan for ~17 GB of free storage. Because the experts are streamed from SSD on demand rather than held in RAM, this variant also needs **fast internal storage** — see §2.4.
 * All three demos default to a context window of 4K tokens. Larger contexts will increase the KV-cache footprint roughly linearly, so on a borderline device you may need to lower it.
 * On Android / HarmonyOS, devices with 8 GB+ RAM are strongly recommended for V 2.6. On iOS, V 2.6 has been validated on iPhone 15 Pro / 16 series and recent iPads with M-series chips; older 6 GB devices may swap heavily.

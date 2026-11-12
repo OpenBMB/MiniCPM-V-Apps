@@ -60,23 +60,13 @@ cd MiniCPM-V-demo-HarmonyOS
 
 * MiniCPM-V-4：HuggingFace 失败时自动回退到 ModelScope，`ggml-model-Q4_K_M.gguf` + `mmproj-model-f16.gguf`
 * MiniCPM-V-4.6：直链 OBS（与 iOS demo 同源），自动 MD5 校验
+* MiniCPM-OCR 1.0：三个文件（LLM + 4x `mmproj` + PP-DocLayoutV3 ONNX），HF / ModelScope 竞争下载，逐个 MD5 校验。`@ohos/onnxruntime` 需要 `@ohos/aki` 1.2.26（工程已用 `overrides` 锁定），版本不匹配会在原生侧 `SIGSEGV`
 
 应用沙箱目录：`/data/storage/el2/base/files/models/<model_id>/`
 
-也可以用 `hdc` 旁路侧载（推荐开发期使用，省下载时间）：
-
-```bash
-# 1) 找到沙箱路径（包名固定 com.tianchi.minicpmv）
-hdc shell mount -t hmdfs   # 仅查看用，不要执行
-hdc shell aa start -a EntryAbility -b com.tianchi.minicpmv  # 启动一次让目录建好
-# 2) 推送模型（v-4.6 为例）
-hdc file send ./MiniCPM-V-4_6-Q4_K_M.gguf \
-  /data/app/el2/100/base/com.tianchi.minicpmv/haps/entry/files/models/minicpm-v-4_6-instruct/
-hdc file send ./mmproj-model-f16.gguf \
-  /data/app/el2/100/base/com.tianchi.minicpmv/haps/entry/files/models/minicpm-v-4_6-instruct/
-```
-
-> 不同 OS 版本的沙箱根路径会有微小差异，如果上面命令写不进去，可以先在应用里随便点一次"下载"再 `hdc shell ls /data/app/el2/100/base/com.tianchi.minicpmv/...` 找到正确目录后再 `file send`。
+> 沙箱路径受 SELinux 保护。实测在正式版本（非 root）下，`hdc file send` 和 `hdc shell` 写入
+> `/data/app/el2/100/base/<bundle>/files/models/` 都会被拒绝（`Permission denied`），
+> 应用读 `/data/local/tmp` 也会被拦。**请统一走应用内下载**，不要依赖侧载。
 
 ---
 
@@ -96,7 +86,9 @@ MiniCPM-V-demo-HarmonyOS/
 │       │   ├── entryability/EntryAbility.ets    # 启动入口（生命周期）
 │       │   ├── pages/
 │       │   │   ├── Index.ets                    # 聊天主页（对应 MainActivity.kt）
-│       │   │   └── ModelManager.ets             # 模型管理页（对应 ModelManagerActivity.kt）
+│       │   │   ├── ModelManager.ets             # 模型管理页（对应 ModelManagerActivity.kt）
+│       │   │   ├── TtsPage.ets                  # VoxCPM2 语音合成页
+│       │   │   └── OcrPage.ets                  # MiniCPM-OCR 页面（对应 OcrActivity.kt）
 │       │   ├── engine/
 │       │   │   ├── LlamaEngine.ets              # 单例 + 状态机 + 串行队列 + 流式 token
 │       │   │   ├── LlamaState.ets               # 状态机定义
@@ -107,6 +99,12 @@ MiniCPM-V-demo-HarmonyOS/
 │       │   │   ├── UserMessageItem.ets
 │       │   │   └── AiMessageItem.ets
 │       │   ├── data/ChatMessage.ets             # 消息数据类
+│       │   ├── ocr/
+│       │   │   ├── LayoutDetector.ets           # PP-DocLayoutV3 (onnxruntime)
+│       │   │   ├── OcrLayout.ets                # 重叠过滤 + 邻居合并 + 裁剪
+│       │   │   ├── OcrPrompts.ets               # 各版面元素的 prompt
+│       │   │   ├── OcrMarkdown.ets              # OTSL 表格 / LaTeX 修复 / 拼装
+│       │   │   └── OcrEngine.ets                # OCR 管线串联
 │       │   └── utils/
 │       │       ├── DownloadManager.ets          # HF/MS 探测 + OBS 直链 + MD5 校验
 │       │       └── ImageCodec.ets               # 系统相册 + PNG 编码 → ArrayBuffer

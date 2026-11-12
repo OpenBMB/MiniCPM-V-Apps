@@ -133,6 +133,7 @@
     { "name": "tts_title_brand", "value": "VoxCPM2" },
     { "name": "tts_subtitle", "value": "文本转语音 · 语音设计与克隆" },
     { "name": "model_desc_voxcpm2", "value": "文本转语音模型，支持语音设计与克隆 (~2B)" },
+    {"name": "model_desc_ocr", "value": "OCR 文档解析模型，版面检测 + 文字识别 (~1B)"},
 
     { "name": "tts_text_label", "value": "输入文本" },
     { "name": "tts_voice_design_hint", "value": "Voice Design: (一个温柔的女声用中文说)你好世界\nVoice Cloning: 直接输入要合成的文本，需提供参考音频" },

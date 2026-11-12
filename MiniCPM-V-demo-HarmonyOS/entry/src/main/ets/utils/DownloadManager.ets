@@ -19,6 +19,7 @@
 // implementation byte-for-byte.
 
 import request from '@ohos.request';
+import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import common from '@ohos.app.ability.common';
@@ -84,6 +85,7 @@ export async function downloadModelsForSelected(
   const ggufSources:   RaceSource[] = [];
   const mmprojSources: RaceSource[] = [];
   const acousticSources: RaceSource[] = [];
+  const layoutSources: RaceSource[] = [];
 
   if (model.hasHfMsSources()) {
     const hfBase = `https://huggingface.co/${model.hfRepo}/resolve/${model.hfBranch}`;
@@ -98,6 +100,10 @@ export async function downloadModelsForSelected(
       acousticSources.push({ label: 'HuggingFace', url: `${hfBase}/${model.acousticRemotePath()}` });
       acousticSources.push({ label: 'ModelScope',  url: `${msBase}/${model.acousticRemotePath()}` });
     }
+    if (model.layout !== null) {
+      layoutSources.push({ label: 'HuggingFace', url: `${hfBase}/${model.layout.remotePath()}` });
+      layoutSources.push({ label: 'ModelScope',  url: `${msBase}/${model.layout.remotePath()}` });
+    }
   }
   if (model.directGgufUrl) {
     ggufSources.push({ label: str(rm, 'source_direct'), url: model.directGgufUrl });
@@ -107,6 +113,9 @@ export async function downloadModelsForSelected(
   }
   if (model.isTts && model.directAcousticUrl) {
     acousticSources.push({ label: str(rm, 'source_direct'), url: model.directAcousticUrl });
+  }
+  if (model.layout !== null && model.layout.directUrl) {
+    layoutSources.push({ label: str(rm, 'source_direct'), url: model.layout.directUrl });
   }
   if (ggufSources.length === 0) {
     throw new Error(`Model ${model.id} has no GGUF download source configured`);
@@ -129,6 +138,11 @@ export async function downloadModelsForSelected(
   }
   if (model.isTts && acousticSources.length > 0) {
     jobs.push({ name: model.acousticFileName, sources: acousticSources, md5: model.acousticMd5 });
+  }
+  if (model.layout !== null) {
+    jobs.push({
+      name: model.layout.fileName, sources: layoutSources, md5: model.layout.md5,
+    });
   }
   for (const job of jobs) {
     await downloadFileWithSources(context, dir, job, onProgress);
@@ -164,8 +178,22 @@ async function downloadFileWithSources(
   // Single-source -> bypass race machinery for clarity / lower overhead.
   if (job.sources.length === 1) {
     const src = job.sources[0];
+    if (isLoopbackUrl(src.url)) {
+      await downloadViaHttpStream(context, dir, job, src, onProgress);
+      return;
+    }
     await downloadSingleSource(context, dir, job.name, src, job.md5, onProgress);
     return;
+  }
+
+  // A loopback mirror is only reachable through a device-local tunnel, which
+  // request.agent refuses to schedule without an active network. Take it
+  // directly and skip the race.
+  for (const src of job.sources) {
+    if (isLoopbackUrl(src.url)) {
+      await downloadViaHttpStream(context, dir, job, src, onProgress);
+      return;
+    }
   }
 
   hilog.info(DOMAIN, TAG, 'Race-downloading %{public}s from %{public}d sources', job.name, job.sources.length);
@@ -352,6 +380,112 @@ async function downloadFileWithSources(
 }
 
 /** Simple wrapper for the rare 1-source case (e.g. legacy direct-mirror only). */
+/** True for URLs that only resolve on this device (dev mirrors over a tunnel). */
+function isLoopbackUrl(url: string): boolean {
+  return url.indexOf('://127.0.0.1') >= 0 || url.indexOf('://localhost') >= 0;
+}
+
+/**
+ * Streams a URL straight into [targetPath].
+ *
+ * request.agent needs an active network to schedule anything, so it never
+ * starts when the only route is loopback. This path dials the socket itself and
+ * is used for the direct-URL escape hatch.
+ */
+async function downloadViaHttpStream(
+  context: common.Context,
+  dir: string,
+  job: MultiSourceJob,
+  src: RaceSource,
+  onProgress: ProgressListener,
+): Promise<void> {
+  const rm = context.resourceManager;
+  const targetPath = `${dir}/${job.name}`;
+  const tmpPath = `${targetPath}.stream.tmp`;
+  const fileName = job.name;
+
+  onProgress(str(rm, 'download_fetching_file').replace('%s', src.label).replace('%s', fileName));
+
+  const client = http.createHttp();
+  let file: fs.File | null = null;
+  let written = 0;
+  let lastTick = 0;
+
+  try {
+    file = fs.openSync(tmpPath, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    const fd = file.fd;
+
+    client.on('dataReceive', (chunk: ArrayBuffer) => {
+      if (chunk && chunk.byteLength > 0) {
+        fs.writeSync(fd, chunk, { offset: written });
+        written += chunk.byteLength;
+      }
+    });
+    client.on('dataReceiveProgress', (p: http.DataReceiveProgressInfo) => {
+      const now = Date.now();
+      if (now - lastTick < 500) return;
+      lastTick = now;
+      const gotMb = Math.floor(p.receiveSize / (1024 * 1024));
+      if (p.totalSize > 0) {
+        const pct = Math.floor(p.receiveSize * 100 / p.totalSize);
+        const totalMb = Math.floor(p.totalSize / (1024 * 1024));
+        onProgress(`${fileName}: ${pct}% (${gotMb}/${totalMb} MB) [${src.label}]`);
+      } else {
+        onProgress(`${fileName}: ${gotMb} MB [${src.label}]`);
+      }
+    });
+
+    const code = await new Promise<number>((resolve, reject) => {
+      client.requestInStream(src.url, {
+        method: http.RequestMethod.GET,
+        connectTimeout: 15000,
+        readTimeout: 120000,
+      }, (err: BusinessError, responseCode: number) => {
+        if (err) {
+          reject(new Error(`${src.label} ${fileName}: ${err.message} (${err.code})`));
+          return;
+        }
+        resolve(responseCode);
+      });
+    });
+    if (code !== 200) {
+      throw new Error(`${src.label} ${fileName}: HTTP ${code}`);
+    }
+
+    // The callback fires once headers are read; body chunks keep arriving until
+    // dataEnd. Give the last chunk a moment to land before rotating the file.
+    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+  } finally {
+    client.off('dataReceive');
+    client.off('dataReceiveProgress');
+    client.destroy();
+    if (file !== null) {
+      fs.closeSync(file);
+    }
+  }
+
+  if (written === 0) {
+    try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
+    throw new Error(`${src.label} ${fileName}: empty body`);
+  }
+
+  if (job.md5) {
+    onProgress(str(rm, 'download_verifying_md5').replace('%s', src.label).replace('%s', fileName));
+    const actual = await computeMd5(tmpPath);
+    if (actual.toLowerCase() !== job.md5.toLowerCase()) {
+      try { fs.unlinkSync(tmpPath); } catch (_) { /* ignore */ }
+      throw new Error(
+        str(rm, 'download_md5_failed').replace('%s', fileName).replace('%s', job.md5).replace('%s', actual)
+      );
+    }
+  }
+
+  try { if (fs.accessSync(targetPath)) fs.unlinkSync(targetPath); } catch (_) { /* ignore */ }
+  fs.renameSync(tmpPath, targetPath);
+  const mbSize = Math.floor(fs.statSync(targetPath).size / (1024 * 1024));
+  onProgress(str(rm, 'download_file_complete').replace('%s', fileName).replace('%d', `${mbSize}`));
+}
+
 async function downloadSingleSource(
   context: common.Context,
   dir: string,
@@ -489,6 +623,9 @@ export async function deleteSelectedModelFiles(context: common.Context): Promise
   }
   if (model.acousticFileName) {
     filesToDelete.push(model.acousticFileName);
+  }
+  if (model.layout !== null) {
+    filesToDelete.push(model.layout.fileName);
   }
   for (const name of filesToDelete) {
     const p = `${dir}/${name}`;

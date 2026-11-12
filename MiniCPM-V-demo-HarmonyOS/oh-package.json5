@@ -3,5 +3,12 @@
   "description": "MiniCPM-V end-side multimodal demo for HarmonyOS NEXT",
   "license": "Apache-2.0",
   "devDependencies": {},
-  "dependencies": {}
+  "dependencies": {
+    "@ohos/onnxruntime": "^1.0.0",
+    "@ohos/aki": "1.2.26"
+  },
+  "overrides": {
+    "@ohos/aki": "1.2.26"
+  },
+  "dynamicDependencies": {}
 }

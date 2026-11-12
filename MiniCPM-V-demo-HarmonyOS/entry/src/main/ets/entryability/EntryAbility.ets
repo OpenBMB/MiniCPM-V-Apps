@@ -36,6 +36,8 @@ export default class EntryAbility extends UIAbility {
       const model = findModelById(id);
       if (model.isTts) {
         page = 'pages/TtsPage';
+      } else if (model.isOcr) {
+        page = 'pages/OcrPage';
       }
       hilog.info(DOMAIN, TAG, 'Selected model: %{public}s, isTts=%{public}s → %{public}s',
                  id, `${model.isTts}`, page);

@@ -2,6 +2,7 @@
   "src": [
     "pages/Index",
     "pages/ModelManager",
-    "pages/TtsPage"
+    "pages/TtsPage",
+    "pages/OcrPage"
   ]
 }

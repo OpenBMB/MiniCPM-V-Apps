@@ -126,6 +126,7 @@
     { "name": "tts_title_brand", "value": "VoxCPM2" },
     { "name": "tts_subtitle", "value": "Text-to-Speech · Voice Design & Cloning" },
     { "name": "model_desc_voxcpm2", "value": "Text-to-speech model with voice design and cloning (~2B)" },
+    {"name": "model_desc_ocr", "value": "Document OCR model with layout detection (~1B)"},
 
     { "name": "tts_text_label", "value": "Input Text" },
     { "name": "tts_voice_design_hint", "value": "Voice Design: (A gentle female voice)Hello world\nVoice Cloning: Enter text to synthesize; provide a reference audio" },

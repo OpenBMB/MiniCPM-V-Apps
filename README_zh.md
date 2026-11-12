@@ -12,7 +12,7 @@
 * **MiniCPM5-1B**（纯文本）
 * **MiniCPM5-2B**（纯文本）
 * **VoxCPM2**（语音合成 TTS）
-* **MiniCPM-OCR 1.0**（文档识别 —— iOS / Android）
+* **MiniCPM-OCR 1.0**（文档识别 —— iOS / Android / HarmonyOS）
 
 仓库中包含三份基于 `llama.cpp` 完整本地推理的 demo：
 
@@ -164,7 +164,7 @@ cd MiniCPM-V-demo-Android
 环境要求：
 
 * DevEco Studio 5.0 或更新版本（含 Native SDK / NDK）
-* HarmonyOS API 12 及以上的真机或模拟器（如 nova 14 活力版 / Mate 60 / Pura 70 等）
+* HarmonyOS API 15 及以上的真机或模拟器（如 nova 14 活力版 / Mate 60 / Pura 70 等）。OCR 管线依赖 `@ohos/onnxruntime`，其 `@ohos/aki` 依赖要求 API 15，因此 `build-profile.json5.example` 里 `compatibleSdkVersion` 设为 `6.0.2(22)`
 * 64 位 ARM 架构（`arm64-v8a`）
 * 设备内存：参见[第二部分](#第二部分gguf-模型文件)中按模型给出的内存要求
 
@@ -174,7 +174,9 @@ cd MiniCPM-V-demo-Android
 2. `File` → `Project Structure` → `Signing Configs` 勾选 **Automatically generate signature**
 3. 真机连接后开启开发者模式与 USB 调试，点击 Run（绿色三角）
 
-首次启动后，进入应用内的 **模型管理** 页面点击 **下载模型**。也可以使用 `hdc file send` 旁路侧载模型文件，详见 `MiniCPM-V-demo-HarmonyOS/README_zh.md`。
+首次启动后，进入应用内的 **模型管理** 页面，选中模型后点击 **下载模型**。应用沙箱路径受 SELinux 保护，正式版本下 `hdc file send` 写入 `.../files/models/` 会被拒绝，请走应用内下载。
+
+想不选图就验证 OCR：**模型管理** → `MiniCPM-OCR 1.0` → **下载模型**，再点 **加载模型**；OCR 页面有 **示例文档** 按钮，会把内置的 `test_ticket.jpg` 走一遍版面检测 + 识别。
 
 > 鸿蒙端 C++ 推理层与 Android、iOS 共用仓库根目录的 `llama.cpp-omni` 子模块，模型清单 / HuggingFace 与 ModelScope 下载地址 / MD5 哈希严格同源。
 
@@ -196,14 +198,14 @@ cd MiniCPM-V-demo-Android
 | MiniCPM5-1B | 1B | Q4_K_M | ~0.5 GB | — | ~0.5 GB | **≥ 4 GB** |
 | MiniCPM5-2B | 2B | Q4_K_M | ~1.5 GB | — | ~1.5 GB | **≥ 6 GB** |
 | VoxCPM2 (TTS) | ~2B | Q4_K_M + F16 | ~1.0 GB | — | ~2.8 GB | **≥ 6 GB** |
-| MiniCPM-OCR 1.0 (iOS) | 752M | Q4_K_M | ~0.5 GB | ~0.9 GB | **~1.6 GB** | **≥ 6 GB** |
+| MiniCPM-OCR 1.0 | 752M | Q4_K_M | ~0.5 GB | ~0.9 GB | **~1.6 GB** | **≥ 6 GB** |
 
 补充说明：
 
 * `mmproj` 是视觉投影器 + ViT 权重，统一保留 **f16** 精度——视觉塔做低比特量化对感知质量的伤害比 LLM 更明显。
 * MiniCPM5-1B 与 MiniCPM5-2B 为纯文本模型，不需要 `mmproj` 文件。
 * VoxCPM2 需要两个 GGUF 文件（BaseLM + Acoustic），同样不需要 `mmproj`——它是一个纯语音合成模型。
-* MiniCPM-OCR 1.0 是**三个文件**：LLM、4x 视觉投影器，外加一个独立的 PP-DocLayoutV3 ONNX 版面检测模型。目前只在 **iOS demo** 里接入，Android 和 HarmonyOS 端还没有 OCR 管线。它的 `mmproj` 是 4x 投影器，**不能**和聊天模型的 `mmproj` 混用。
+* MiniCPM-OCR 1.0 是**三个文件**：LLM、4x 视觉投影器，外加一个独立的 PP-DocLayoutV3 ONNX 版面检测模型。iOS、Android 和 HarmonyOS 三端都已接入。它的 `mmproj` 是 4x 投影器，**不能**和聊天模型的 `mmproj` 混用。
 * MiniCPM-V 4.7 35B-A3B 的专家权重用的是 **Q3_K** 量化（`mix_q3gud_im`）而非 Q4，且路由专家已从主 `.gguf` 中剥离到独立的 `experts/` 目录。表中的 **~16.6 GB** = 主文件 + 40 个专家分片 + `mmproj`，请预留约 17 GB 空闲存储。由于专家是按需从 SSD 流式读取、并不常驻内存，这一档还要求**较快的机身存储**，详见 §2.4。
 * 三端 demo 默认上下文长度为 4K token。上下文越长，KV cache 占用近似线性增长，临界设备上可能需要相应调小。
 * Android / HarmonyOS 上跑 V 2.6 强烈建议 8 GB 及以上内存。iOS 上 V 2.6 已在 iPhone 15 Pro / 16 系列以及搭载 M 系列芯片的较新 iPad 上验证；早期 6 GB 内存设备容易出现频繁换页。
@@ -312,7 +314,7 @@ VoxCPM2 支持 30+ 种语言和 9 种中国方言。可直接从文本生成语�
 
 下载后将两个 `.gguf` 文件放入 App 的 **Documents** 目录（iOS），或放入 `/models/{model_id}/` 目录（Android / HarmonyOS）。也可以在 App 内的 **模型管理** 页面直接下载。下载完成后选择 VoxCPM2 模型，App 将自动切换至语音合成界面。
 
-### 2.8 MiniCPM-OCR 1.0 模型文件（文档识别，iOS / Android）
+### 2.8 MiniCPM-OCR 1.0 模型文件（文档识别，iOS / Android / HarmonyOS）
 
 MiniCPM-OCR 1.0 把照片、截图或 PDF 页转成 Markdown：先做版面检测切块，再逐块送视觉语言模型识别，最后按阅读顺序拼回标题、正文、表格、公式和印章。
 

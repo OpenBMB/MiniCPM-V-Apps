@@ -184,7 +184,8 @@ struct ModelManager {
         this.loading = false;
         this.loadingLock = false;
         promptAction.showToast({ message: this.str('toast_model_loaded'), duration: 1500 });
-        router.replaceUrl({ url: 'pages/Index' });
+        const loaded = LlamaEngine.getSelectedModel(getContext(this));
+        router.replaceUrl({ url: loaded.isOcr ? 'pages/OcrPage' : 'pages/Index' });
         return;
       } catch (e) {
         hilog.error(DOMAIN, TAG, 'load failed: %{public}s', `${e}`);
