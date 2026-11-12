@@ -369,7 +369,7 @@ struct MiniCPMV47Const {
         let dir = "MiniCPM-V-4.7-35B-A3B"
         return [
             ModelDownloadFile(remotePath: "\(dir)/\(modelFileName)",
-                              localName: modelFileName, bytes: 15_503_961_856),
+                              localName: modelFileName, bytes: 15_504_375_808),
             ModelDownloadFile(remotePath: "\(dir)/\(mmprojFileName)",
                               localName: mmprojFileName, bytes: 1_119_575_840),
         ]
