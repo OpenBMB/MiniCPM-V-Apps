@@ -357,8 +357,14 @@ struct MiniCPMV47Const {
     static let expertsDirName = "experts"
 
     /// 公网托管（下载源，两个源竞速）。
-    static let hfBase = "https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf/resolve/main"
-    static let msBase = "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master"
+    ///
+    /// HF 走**专用仓库** `tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf`：仓库本身就是这个模型，
+    /// 所以文件平铺在根目录（`<hfBase>/<文件名>`），不再套一层 `MiniCPM-V-4.7-35B-A3B/`。
+    ///
+    /// `msBase` 留空 = 暂无国内镜像，备用源会被跳过（见 MBModelDownloadHelperV2 对空串的处理）。
+    /// 镜像建好后把地址填回来即可，`downloadFiles` 不用动。
+    static let hfBase = "https://huggingface.co/tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf/resolve/main"
+    static let msBase = ""
 
     /// 需要下载的文件：主模型 + mmproj。
     ///
@@ -366,11 +372,10 @@ struct MiniCPMV47Const {
     /// 旧布局是 43 项（主模型 + mmproj + manifest + 40 个分片），
     /// 那套产物仍可加载：把 `-moeExpertsDir` 指过去即可做 A/B。
     static var downloadFiles: [ModelDownloadFile] {
-        let dir = "MiniCPM-V-4.7-35B-A3B"
         return [
-            ModelDownloadFile(remotePath: "\(dir)/\(modelFileName)",
+            ModelDownloadFile(remotePath: modelFileName,
                               localName: modelFileName, bytes: 15_504_375_808),
-            ModelDownloadFile(remotePath: "\(dir)/\(mmprojFileName)",
+            ModelDownloadFile(remotePath: mmprojFileName,
                               localName: mmprojFileName, bytes: 1_119_575_840),
         ]
     }

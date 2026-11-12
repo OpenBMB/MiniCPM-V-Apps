@@ -148,7 +148,8 @@ final class MBV47ModelDownloadManager: NSObject {
         let caches = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first ?? ""
         let tmp = NSTemporaryDirectory()
         for f in variant.files {
-            for url in ["\(variant.hfBase)/\(f.remotePath)", "\(variant.msBase)/\(f.remotePath)"] {
+            for base in downloadBases {
+                let url = "\(base)/\(f.remotePath)"
                 guard let digested = url.md5() else { continue }
                 let ext = URL(string: url)?.pathExtension ?? "bin"
                 let name = "\(digested).\(ext)"
@@ -169,6 +170,14 @@ final class MBV47ModelDownloadManager: NSObject {
         }
     }
 
+    /// 该 variant 实际可用的下载源（空地址代表「暂无该镜像」，不能拿去拼 URL）。
+    ///
+    /// 拼 URL 的地方一律走这里，别直接拼 `variant.msBase`：镜像没建时它是空串，
+    /// `"\(空串)/文件名"` 会变成 `"/文件名"`，既不报错也下载不到，只会白白多一次失败。
+    private var downloadBases: [String] {
+        [variant.hfBase, variant.msBase].filter { !$0.isEmpty }
+    }
+
     private func helper(for file: ModelDownloadFile) -> MBModelDownloadHelperV2? {
         if let h = queue.sync(execute: { helpers[file.localName] }) { return h }
         guard let wrapper = wrapper ?? sharedWrapperProbe else { return nil }
@@ -177,7 +186,7 @@ final class MBV47ModelDownloadManager: NSObject {
             modelName: variant.displayedName,
             modelUrl: "\(variant.hfBase)/\(file.remotePath)",
             filename: fullLocalName(file),
-            backupModelUrl: "\(variant.msBase)/\(file.remotePath)"
+            backupModelUrl: variant.msBase.isEmpty ? nil : "\(variant.msBase)/\(file.remotePath)"
         )
         queue.sync { helpers[file.localName] = h }
         return h

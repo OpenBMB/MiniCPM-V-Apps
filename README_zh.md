@@ -260,8 +260,7 @@ MiniCPM-V 4.7 有两个规格：
 * **端上重排版 —— 供本 demo 在手机上使用。** 带 `LCO-` 前缀的那份文件（以及本 demo 实际构建与
   验证所用的那一版 1B）。
 
-  * HuggingFace: [tc-mb/MiniCPM-V-Apps-gguf](https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf)
-  * ModelScope: [zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
+  * HuggingFace: [tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf](https://huggingface.co/tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf)
 
 > **`LCO-` 前缀的含义。** `LCO` = **l**lama.**c**pp-**o**mni。这个前缀标明该文件是由**本引擎**
 > 排布的，标准 `llama.cpp` 读不了：路由专家按 expert-major 重排，布局由只有本引擎认识的
