@@ -81,6 +81,10 @@ import llama
     /// MoE SSD experts 目录（含 manifest.json + 分层 expert bin）。空字符串 = 关闭。
     public let moeExpertsPath: String
 
+    /// 专家内联在主 `.gguf` 里（LES 单文件布局，由文件自身的 `les.moe.descriptor` 描述）。
+    /// 为 true 时 `moeExpertsPath` 不参与加载；`moeSlotBank` 仍然有效。
+    public let moeExpertsInModel: Bool
+
     /// 每层常驻内存的 expert 槽位数。experts 开启时必须 > 0。
     public let moeSlotBank: Int
 
@@ -145,6 +149,7 @@ import llama
         imageMaxSliceNums: Int = -1,
         imageMaxTokens: Int = -1,
         moeExpertsPath: String = "",
+        moeExpertsInModel: Bool = false,
         moeSlotBank: Int = 0,
         moeDecodeWindow: Int = 0,
         moeLookaheadPrefetchDepth: Int = 0,
@@ -166,6 +171,7 @@ import llama
         self.imageMaxSliceNums = imageMaxSliceNums
         self.imageMaxTokens = imageMaxTokens
         self.moeExpertsPath = moeExpertsPath
+        self.moeExpertsInModel = moeExpertsInModel
         self.moeSlotBank = moeSlotBank
         self.moeDecodeWindow = moeDecodeWindow
         self.moeLookaheadPrefetchDepth = moeLookaheadPrefetchDepth
@@ -206,6 +212,7 @@ import llama
         params.image_max_tokens      = Int32(imageMaxTokens)
         params.image_max_slice_nums  = Int32(imageMaxSliceNums)
         params.moe_slot_bank         = Int32(moeSlotBank)
+        params.moe_experts_in_model  = Int32(moeExpertsInModel ? 1 : 0)
         params.moe_decode_window     = Int32(moeDecodeWindow)
         params.moe_lookahead_prefetch_depth        = Int32(moeLookaheadPrefetchDepth)
         params.moe_prewarm_level     = Int32(moePrewarmLevel)

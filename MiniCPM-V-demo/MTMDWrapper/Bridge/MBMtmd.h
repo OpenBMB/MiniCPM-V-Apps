@@ -65,6 +65,10 @@ typedef struct mb_mtmd_params {
     int   image_max_tokens;
     int   image_max_slice_nums;  // llava-uhd slice cap (minicpmv / lfm2); -1 = model default
     int   moe_slot_bank;         // in-RAM expert slots; used together with moe_experts_path
+    // The routed experts live inside the model `.gguf` itself (LES single-file layout,
+    // described by its own `les.moe.descriptor`). When 1, `moe_experts_path` is ignored
+    // and `moe_slot_bank` still applies.
+    int   moe_experts_in_model;
     int   moe_decode_window;     // per-layer decode cache width in slots; 0 = app decides (see MTMDParams)
     int   moe_lookahead_prefetch_depth;        // 0 = off; 1..16 = predicted experts to prefetch
     // Expert-window cache prewarm (LLAMA_MOE_PREWARM). 0 = off; else the table size
@@ -122,6 +126,21 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
 // Last `mb_mtmd_init` / `mb_mtmd_init_text_only` failure. Empty if none.
 // Lifetime: valid until the next init call.
 const char * mb_mtmd_last_init_error(void);
+
+// Read the LES descriptor out of a gguf header **without loading the model**.
+//
+// This is what lets the app size the decode-window budget before committing
+// ~15 GiB of weights: the budget depends on bytes-per-expert-slot, which for a
+// single-file LES model lives in the file's own `les.moe.descriptor` rather
+// than in a separate manifest.json.
+//
+// Returns 1 and fills the out-params for an LES single-file model, 0 otherwise
+// (plain dense model, legacy layout, unreadable file). Out-params are left
+// untouched on failure; any of them may be NULL.
+int32_t mb_les_probe(const char * gguf_path,
+                     int32_t * n_layer,
+                     int32_t * n_expert,
+                     int64_t * bytes_per_slot);
 
 // Construct a text-only context (no mmproj / vision module).
 //

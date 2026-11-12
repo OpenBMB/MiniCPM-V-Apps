@@ -385,6 +385,10 @@ struct mb_mtmd_context {
     bool                enable_thinking = false; // MiniCPM5 / V-4.6; default off
 
     std::string         experts_path;        // owned copy for llama_model_params
+    // 专家内联在主 gguf 里（LES 单文件布局）。此时 experts_path 记的是主 gguf 的路径
+    // —— 下游所有「是不是 MoE」的判断都看它非空 —— 但不再传给
+    // llama_model_params.moe_experts_path（那个字段的语义是 manifest 路径）。
+    bool                experts_in_model = false;
     std::string         pending_image_path;  // ChatML (image-in-user-turn): image is folded into the next user turn
 
 // 选图时先做 ViT 编码，KV 写入留到发送轮。
@@ -498,6 +502,23 @@ static void set_error(mb_mtmd_context * ctx, const std::string & err) {
 
 const char * mb_mtmd_last_init_error(void) {
     return g_last_init_error.c_str();
+}
+
+int32_t mb_les_probe(const char * gguf_path,
+                     int32_t * n_layer,
+                     int32_t * n_expert,
+                     int64_t * bytes_per_slot) {
+    if (!gguf_path || !*gguf_path) {
+        return 0;
+    }
+    llama_les_info info{};
+    if (!llama_les_probe(gguf_path, &info)) {
+        return 0;
+    }
+    if (n_layer)        { *n_layer = info.n_layer; }
+    if (n_expert)       { *n_expert = info.n_expert; }
+    if (bytes_per_slot) { *bytes_per_slot = (int64_t) info.bytes_per_slot; }
+    return 1;
 }
 
 static double now_ms() {
@@ -1475,6 +1496,7 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.image_max_tokens      = -1;
     p.image_max_slice_nums  = -1;
     p.moe_slot_bank         = 0;
+    p.moe_experts_in_model  = 0;       // 0 = 专家在 experts/ 目录（旧布局）
     p.moe_lookahead_prefetch_depth        = 0;
     p.moe_prewarm_level     = 0;       // 0 = 预热关闭（App 会按设置传 8/16/32/48/64/96）
     p.moe_prewarm_table_id  = 0;       // 0 = 默认加权表；1..8 = K=4 集群表
@@ -1808,8 +1830,9 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     // std::make_unique is C++14; some Xcode build configs in this project use
     // gnu++0x (= C++11) for ObjC++ targets, so we stick with the C++11 form.
     std::unique_ptr<mb_mtmd_context> ctx(new mb_mtmd_context());
-    if (moe_experts_path && *moe_experts_path) {
-        ctx->experts_path = moe_experts_path;
+    if ((moe_experts_path && *moe_experts_path) || params.moe_experts_in_model) {
+        ctx->experts_in_model = params.moe_experts_in_model != 0;
+        ctx->experts_path = ctx->experts_in_model ? model_path : moe_experts_path;
         ctx->model_version = 47;
     }
 
@@ -1836,7 +1859,13 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     // No `load_mtp` on this branch: llama_model_params has no such field here.
     int slot_bank = 0;
     if (!ctx->experts_path.empty()) {
-        mparams.moe_experts_path = ctx->experts_path.c_str();
+        // in-model 模式下专家就在主 gguf 里；此时不能设 moe_experts_path（那是 manifest
+        // 的路径），否则引擎会去把 gguf 当 manifest 解析。
+        if (ctx->experts_in_model) {
+            mparams.moe_experts_in_model = true;
+        } else {
+            mparams.moe_experts_path = ctx->experts_path.c_str();
+        }
         slot_bank = params.moe_slot_bank > 0 ? params.moe_slot_bank : 8;
         mparams.moe_slot_bank    = slot_bank;
         // 默认用 mmap，见 moe_use_mmap_launch_arg 的说明（剥离 gguf 后已可在端上工作）。
@@ -1855,8 +1884,9 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
             params.moe_decode_window, "before model load");
         ctx->moe_k_prefill = MB_MOE_K_PREFILL;
         ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] MoE SSD experts=%s slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                mparams.moe_experts_path, slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
+        fprintf(stderr, "[MBMtmd] MoE SSD experts=%s (%s) slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
+                ctx->experts_path.c_str(), ctx->experts_in_model ? "in-model" : "manifest",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
                 ctx->moe_k_prefill, ctx->moe_k_decode);
     }
 
@@ -2075,9 +2105,14 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
     // 纯文本也要能挂 experts：35B-A3B 全量专家 ~20GB，8GB 手机只能走 SSD 流式。
     // 基准用这条路径（不需要 mmproj / 视觉塔），同时省下 ~1GB 常驻。
     int slot_bank = 0;
-    if (moe_experts_path && *moe_experts_path) {
-        ctx->experts_path        = moe_experts_path;
-        mparams.moe_experts_path = ctx->experts_path.c_str();
+    if ((moe_experts_path && *moe_experts_path) || params.moe_experts_in_model) {
+        ctx->experts_in_model = params.moe_experts_in_model != 0;
+        ctx->experts_path = ctx->experts_in_model ? model_path : moe_experts_path;
+        if (ctx->experts_in_model) {
+            mparams.moe_experts_in_model = true;
+        } else {
+            mparams.moe_experts_path = ctx->experts_path.c_str();
+        }
         slot_bank = params.moe_slot_bank > 0 ? params.moe_slot_bank : 8;
         mparams.moe_slot_bank    = slot_bank;
         mparams.use_mmap         = moe_use_mmap_launch_arg();  // 默认关，见上面说明
@@ -2097,8 +2132,9 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
             params.moe_decode_window, "before model load (text-only)");
         ctx->moe_k_prefill = MB_MOE_K_PREFILL;
         ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] text-only MoE SSD experts=%s slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                mparams.moe_experts_path, slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
+        fprintf(stderr, "[MBMtmd] text-only MoE SSD experts=%s (%s) slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
+                ctx->experts_path.c_str(), ctx->experts_in_model ? "in-model" : "manifest",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
                 ctx->moe_k_prefill, ctx->moe_k_decode);
     }
 

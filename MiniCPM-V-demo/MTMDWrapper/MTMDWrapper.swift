@@ -143,6 +143,11 @@ public class MTMDWrapper: ObservableObject {
                     params.mmprojPath.withCString { mmprojCStr in
                         draftPath.withCString { draftCStr in
                             let draftPtr: UnsafePointer<CChar>? = draftPath.isEmpty ? nil : draftCStr
+                            if params.moeExpertsInModel {
+                                // 专家在主 gguf 里：不传 experts 路径，由 params 里的
+                                // moe_experts_in_model 让引擎从 les.moe.descriptor 读。
+                                return mb_mtmd_init(modelCStr, mmprojCStr, nil, draftPtr, &cParams)
+                            }
                             if params.moeExpertsPath.isEmpty {
                                 return mb_mtmd_init(modelCStr, mmprojCStr, nil, draftPtr, &cParams)
                             }
@@ -190,16 +195,19 @@ public class MTMDWrapper: ObservableObject {
                 var cParams = params.toCParams()
                 let expertsPath = params.moeExpertsPath
                 let draftPath   = params.draftModelPath
-                let ctx = params.modelPath.withCString { modelCStr in
+                let ctx: OpaquePointer? = params.modelPath.withCString { modelCStr -> OpaquePointer? in
                     // 空 experts → 传 nullptr（纯 dense 文本模型）。
                     // 非空 → 走 MoE SSD 流式，35B-A3B 全量专家在 8GB 手机上放不下。
                     // 空 draft → 传 nullptr（投机解码关闭）。
-                    expertsPath.withCString { expertsCStr in
-                        draftPath.withCString { draftCStr in
-                            mb_mtmd_init_text_only(modelCStr,
-                                                   expertsPath.isEmpty ? nil : expertsCStr,
-                                                   draftPath.isEmpty ? nil : draftCStr,
-                                                   &cParams)
+                    expertsPath.withCString { expertsCStr -> OpaquePointer? in
+                        draftPath.withCString { draftCStr -> OpaquePointer? in
+                            let draftPtr: UnsafePointer<CChar>? = draftPath.isEmpty ? nil : draftCStr
+                            // 专家在模型内时 experts 路径必须传 nullptr；引擎按
+                            // cParams.moe_experts_in_model 从 les.moe.descriptor 读。
+                            if params.moeExpertsInModel || expertsPath.isEmpty {
+                                return mb_mtmd_init_text_only(modelCStr, nil, draftPtr, &cParams)
+                            }
+                            return mb_mtmd_init_text_only(modelCStr, expertsCStr, draftPtr, &cParams)
                         }
                     }
                 }

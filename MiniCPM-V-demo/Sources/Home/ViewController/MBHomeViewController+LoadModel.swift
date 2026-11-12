@@ -292,6 +292,9 @@ extension MBHomeViewController {
                         print("MTMDWrapperExample: v47 text-only + experts 路径（-moeTextOnly）")
                         // DSpark：找不到草稿模型就传空，静默关闭投机。
                         let draftPath = MiniCPMV47Const.resolveDraftModelPath(in: documentsDirectory)
+                        // 单文件布局（LCO-*.gguf）：专家在主 gguf 里，不传 experts 路径，
+                        // 由引擎从 les.moe.descriptor 读布局。
+                        let inModel = MiniCPMV47Const.expertsInModel(at: artifacts.expertsURL)
                         // 窗口在下面分配，先落 pending，成功后才清。
                         MiniCPMV47Const.markCacheWindowLoadStarted()
                         let winSlots = MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL)
@@ -299,7 +302,8 @@ extension MBHomeViewController {
                         await self.mtmdWrapperExample?.initializeTextOnly(
                             modelPath: artifacts.modelURL.path,
                             nCtx: MiniCPMV47Const.defaultNCtx,
-                            moeExpertsPath: artifacts.expertsURL.path,
+                            moeExpertsPath: inModel ? "" : artifacts.expertsURL.path,
+                            moeExpertsInModel: inModel,
                             moeSlotBank: MiniCPMV47Const.slotBank(),
                             moeDecodeWindow: MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL),
                             nUbatchOverride: MiniCPMV47Const.nUbatch(),
@@ -353,6 +357,7 @@ extension MBHomeViewController {
                     }
                     let draftPath = MiniCPMV47Const.resolveDraftModelPath(in: documentsDirectory)
                     // 同上：窗口在下面分配，先落 pending。
+                    let inModel = MiniCPMV47Const.expertsInModel(at: artifacts.expertsURL)
                     MiniCPMV47Const.markCacheWindowLoadStarted()
                     let winSlots = MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL)
                         + MiniCPMV47Const.lookaheadPrefetchDepth()
@@ -360,7 +365,8 @@ extension MBHomeViewController {
                         modelPath: artifacts.modelURL.path,
                         mmprojPath: artifacts.mmprojURL.path,
                         nCtx: MiniCPMV47Const.defaultNCtx,
-                        moeExpertsPath: artifacts.expertsURL.path,
+                        moeExpertsPath: inModel ? "" : artifacts.expertsURL.path,
+                        moeExpertsInModel: inModel,
                         moeSlotBank: MiniCPMV47Const.slotBank(),
                         // 多模态路径也要传窗口（默认 0 = 窗口关闭，会拿不到按层缓存收益）。
                         moeDecodeWindow: MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL),

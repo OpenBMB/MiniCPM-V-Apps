@@ -206,7 +206,7 @@ cd MiniCPM-V-demo-Android
 * MiniCPM5-1B 与 MiniCPM5-2B 为纯文本模型，不需要 `mmproj` 文件。
 * VoxCPM2 需要两个 GGUF 文件（BaseLM + Acoustic），同样不需要 `mmproj`——它是一个纯语音合成模型。
 * MiniCPM-OCR 1.0 是**三个文件**：LLM、4x 视觉投影器，外加一个独立的 PP-DocLayoutV3 ONNX 版面检测模型。iOS、Android 和 HarmonyOS 三端都已接入。它的 `mmproj` 是 4x 投影器，**不能**和聊天模型的 `mmproj` 混用。
-* MiniCPM-V 4.7 35B-A3B 的专家权重用的是 **Q3_K** 量化（`mix_q3gud_im`）而非 Q4，且路由专家已从主 `.gguf` 中剥离到独立的 `experts/` 目录。表中的 **~16.6 GB** = 主文件 + 40 个专家分片 + `mmproj`，请预留约 17 GB 空闲存储。由于专家是按需从 SSD 流式读取、并不常驻内存，这一档还要求**较快的机身存储**，详见 §2.4。
+* MiniCPM-V 4.7 35B-A3B 的专家权重用的是 **Q3_K** 量化（`mix_q3gud_im`）而非 Q4，且路由专家已按 expert-major 重排内联在同一个 `.gguf` 里。表中的 **~16.6 GB** = 那一个文件（14.4 GB）+ `mmproj`（1.1 GB），请预留约 17 GB 空闲存储。由于专家是按需从 SSD 流式读取、并不常驻内存，这一档还要求**较快的机身存储**，详见 §2.4。
 * 三端 demo 默认上下文长度为 4K token。上下文越长，KV cache 占用近似线性增长，临界设备上可能需要相应调小。
 * Android / HarmonyOS 上跑 V 2.6 强烈建议 8 GB 及以上内存。iOS 上 V 2.6 已在 iPhone 15 Pro / 16 系列以及搭载 M 系列芯片的较新 iPad 上验证；早期 6 GB 内存设备容易出现频繁换页。
 * MiniCPM-V 4.7 35B-A3B 已在 12 GB 的 iPhone 17 Pro Max 上验证。内存更小的设备会自动退化为**更小的专家缓存**，仍可运行，但速度明显下降。
@@ -242,8 +242,9 @@ cd MiniCPM-V-demo-Android
 
 MiniCPM-V 4.7 有两个规格：
 
-* **MiniCPM-V 4.7 35B-A3B** —— MoE（总参 35B / 激活 3B）。采用 **MoE-SSD**：路由专家权重已从主
-  `.gguf` 中剥离到独立的 `experts/` 目录，按需从 SSD 流式读取——这正是 35B 级模型能在手机上跑起来的原因。
+* **MiniCPM-V 4.7 35B-A3B** —— MoE（总参 35B / 激活 3B）。采用 **MoE-SSD**：路由专家按 expert-major
+  重排（每个专家的 `gate|up|down` 字节连续）后**内联在同一个** `.gguf` 里，按需从 SSD 流式读取——
+  一个文件，这正是 35B 级模型能在手机上跑起来的原因。
 * **MiniCPM-V 4.7 1B** —— dense，体积小到可以全部常驻内存。
 
 #### 从哪里获取 GGUF 文件
@@ -256,29 +257,33 @@ MiniCPM-V 4.7 有两个规格：
   * HuggingFace: [openbmb/MiniCPM-V-4.7-35B-A3B-gguf](https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B-gguf) · [openbmb/MiniCPM-V-4.7-1B-gguf](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf)
   * ModelScope: [openbmb/MiniCPM-V-4.7-35B-A3B-gguf](https://modelscope.cn/models/openbmb/MiniCPM-V-4.7-35B-A3B-gguf) · [openbmb/MiniCPM-V-4.7-1B-gguf](https://modelscope.cn/models/openbmb/MiniCPM-V-4.7-1B-gguf)
 
-* **端上拆分版 —— 供本 demo 在手机上使用。** `-les` 主文件 + 配套的 `experts/` 目录（以及本
-  demo 实际构建与验证所用的那一版 1B）。
+* **端上重排版 —— 供本 demo 在手机上使用。** 带 `LCO-` 前缀的那份文件（以及本 demo 实际构建与
+  验证所用的那一版 1B）。
 
   * HuggingFace: [tc-mb/MiniCPM-V-Apps-gguf](https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf)
   * ModelScope: [zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
 
-> **为什么需要单独一份拆分版。** 官方仓库**没有** `-les` 变体，而本 demo **无法**加载它们的 35B
-> `mix_q3gud_im.gguf`：那个文件的专家权重是内联的，手机要么把整个 ~15.5 GB 当成一个 Metal buffer
-> （mmap），要么全部常驻内存（关 mmap）—— 两种都会被系统杀掉。把专家剥离到 `experts/` 之后，它们
-> 可以按需从 SSD 分页读入，这才是 35B 级模型能在手机上跑起来的前提。所以拆分版是**为本 demo 专门
-> 制作**的产物，不是通用发布格式。1B 不需要拆分；把它一并放在上面，只是因为本 demo 是针对那一版
-> 做的验证。
+> **`LCO-` 前缀的含义。** `LCO` = **l**lama.**c**pp-**o**mni。这个前缀标明该文件是由**本引擎**
+> 排布的，标准 `llama.cpp` 读不了：路由专家按 expert-major 重排，布局由只有本引擎认识的
+> `les.moe.descriptor` 元数据描述。名字的其余部分完全沿用官方规范
+> （`MiniCPM-V-4_7-35B-A3B-mix_q3gud_im`），所以 `LCO-` 版和官方版一眼就能配对。
+>
+> **为什么必须重排。** 专家流式读取路径要求「一个专家 = 一条 `preadv`」，也就是每个专家的
+> `gate|up|down` 三块必须字节连续。官方 GGUF 是按 family 存的（`ffn_up_exps` 的第一个专家距离
+> `ffn_gate_exps` 有 256 个专家那么远），那样每个专家就要三次读——或者让张量保持原样，等于对整个
+> ~15.5 GB 做 mmap。`LCO-` 重排是**纯字节搬家**：常驻张量和每一个专家的字节都与官方文件逐字节
+> 相同（已验证 653/653），所以它不可能改变模型输出。
 
 文件按模型分子目录存放：
 
 | 规格 | 需要下载的文件 | 端上落盘位置 |
 | --- | --- | --- |
-| **35B-A3B** | `MiniCPM-V-4.7-35B-A3B/MiniCPM-V-4_7-35B-A3B-mix_q3gud_im-les.gguf`<br>`MiniCPM-V-4.7-35B-A3B/mmproj-model-f16.gguf`<br>`MiniCPM-V-4.7-35B-A3B/experts/`（40 个分片 + `manifest.json`） | `Documents/MiniCPMV47/` |
+| **35B-A3B** | `MiniCPM-V-4.7-35B-A3B/LCO-MiniCPM-V-4_7-35B-A3B-mix_q3gud_im.gguf`<br>`MiniCPM-V-4.7-35B-A3B/mmproj-model-f16.gguf` | `Documents/MiniCPMV47/` |
 | **1B** | `MiniCPM-V-4.7-1B/MiniCPM-V-4_7-1B-Q4_K_M.gguf`<br>`MiniCPM-V-4.7-1B/mmproj-model-f16.gguf` | `Documents/MiniCPMV47_1B/` |
 
-> **`experts/` 目录必须和它的主文件配套使用。** `-les` 变体自身不含路由专家权重，两者批次不一致会
-> 通不过端上的完整性校验，模型直接拒绝加载。最稳妥的做法是**直接用 App 内下载**（设置 → 点该模型
-> → **下载**），它会拉取全部文件并逐个校验分片大小。
+> **`LCO-` 文件自带专家。** 不再有独立的 `experts/` 目录：布局元数据就在文件的
+> `les.moe.descriptor` 里，App 在加载之前读它来算专家缓存的预算。最稳妥的做法是**直接用 App 内
+> 下载**（设置 → 点该模型 → **下载**），它会拉取两个文件并按 descriptor 校验模型大小。
 
 ### 2.5 MiniCPM5-1B GGUF 模型文件（纯文本）
 

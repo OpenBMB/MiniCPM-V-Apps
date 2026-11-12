@@ -344,11 +344,15 @@ struct MiniCPMV47Const {
     static let displayedName = "MiniCPM-V 4.7 35B-A3B"
     /// 默认量化 q3gud-im（Q3_K 专家）。
     ///
-    /// `-les` = 路由专家已剥离、改由 `experts/` 目录按需流式读取（见
-    /// `docs/les/lookahead-expert-scheduling.md`）。引擎默认开 mmap，必须喂这个变体：
-    /// 带专家的完整版在 mmap 下会把整文件包成一个 Metal buffer 而 OOM。
+    /// 文件名前缀 `LCO-` = llama.cpp-omni 的**专用格式**：路由专家按 expert-major
+    /// 重排后内联在同一个 `.gguf` 尾部，由文件内的 `les.moe.descriptor` 描述布局。
+    /// 官方仓库的 `mix_q3gud_im.gguf` 不能直接喂给本引擎（专家内联但没有重排，
+    /// slot 读取路径要求每专家的 gate|up|down 连续），必须用 `LCO-` 版本。
+    ///
+    /// 与旧版 `...-les.gguf` + `experts/` 相比是**纯字节搬家**：常驻权重与专家字节
+    /// 逐字节相同（已验证 653 项），只是从 43 个文件收成一个。
     /// 换量化用 `-moeModel` 覆盖。
-    static let modelFileName = "MiniCPM-V-4_7-35B-A3B-mix_q3gud_im-les.gguf"
+    static let modelFileName = "LCO-MiniCPM-V-4_7-35B-A3B-mix_q3gud_im.gguf"
     static let mmprojFileName = "mmproj-model-f16.gguf"
     static let expertsDirName = "experts"
 
@@ -356,35 +360,24 @@ struct MiniCPMV47Const {
     static let hfBase = "https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf/resolve/main"
     static let msBase = "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master"
 
-    /// experts 目录里 layer 分片的个数与单片字节数。
+    /// 需要下载的文件：主模型 + mmproj。
     ///
-    /// 分片名固定为 `layer_%03d.bin`，每片等大（一个 layer 的全部路由专家）。
-    /// 换量化要一起改这两项；下载完由 `expertsProblems()` 用 manifest 再验一遍。
-    static let expertLayerCount = 40
-    static let expertLayerBytes: Int64 = 346_030_080
-
-    /// 需要下载的文件：主模型 + mmproj + experts 的 manifest 与全部分片。
-    ///
-    /// 顺序有意为之：manifest 最先（小、能最快确认布局），接着主模型与 mmproj，
-    /// 最后 40 个分片（最占时间）。
+    /// 路由专家已内联在主模型里（见 `modelFileName` 的注释），所以这里只有两项。
+    /// 旧布局是 43 项（主模型 + mmproj + manifest + 40 个分片），
+    /// 那套产物仍可加载：把 `-moeExpertsDir` 指过去即可做 A/B。
     static var downloadFiles: [ModelDownloadFile] {
         let dir = "MiniCPM-V-4.7-35B-A3B"
-        var files: [ModelDownloadFile] = [
-            ModelDownloadFile(remotePath: "\(dir)/\(expertsDirName)/manifest.json",
-                              localName: "\(expertsDirName)/manifest.json", bytes: 73_668),
+        return [
             ModelDownloadFile(remotePath: "\(dir)/\(modelFileName)",
-                              localName: modelFileName, bytes: 1_662_732_800),
+                              localName: modelFileName, bytes: 15_503_961_856),
             ModelDownloadFile(remotePath: "\(dir)/\(mmprojFileName)",
                               localName: mmprojFileName, bytes: 1_119_575_840),
         ]
-        for i in 0..<expertLayerCount {
-            let name = String(format: "layer_%03d.bin", i)
-            files.append(ModelDownloadFile(remotePath: "\(dir)/\(expertsDirName)/\(name)",
-                                           localName: "\(expertsDirName)/\(name)",
-                                           bytes: expertLayerBytes))
-        }
-        return files
     }
+
+    /// 旧布局（专家剥离到 `experts/`）的文件名。仅用于「老用户残留」的说明文案与
+    /// 主动清理：新布局不读它，但留着会白占 12.9 GiB。
+    static let legacyLesModelFileName = "MiniCPM-V-4_7-35B-A3B-mix_q3gud_im-les.gguf"
     /// 手机上落盘目录。必须放子目录：mmproj 文件名与 V2.6 的
     /// `mmproj-model-f16.gguf` 同名，平铺在 Documents 根会互相覆盖。
     static let documentsDirName = "MiniCPMV47"
@@ -457,6 +450,19 @@ struct MiniCPMV47Const {
             return ProcessInfo.processInfo.arguments[i + 1]
         }
         return expertsDirName
+    }
+
+    /// `expertsURL` 指向的是「旧布局的 experts 目录」还是「单文件布局的模型目录」。
+    ///
+    /// 判据是 `manifest.json` 在不在：旧布局必须有它（引擎的 manifest 构造器读的就是
+    /// 它），单文件布局没有。这个判据比「是不是目录」可靠 —— 两种情况下传进来的
+    /// 都可能是目录。
+    static func expertsInModel(at expertsURL: URL) -> Bool {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: expertsURL.path, isDirectory: &isDir) else { return true }
+        if !isDir.boolValue { return true }
+        return !fm.fileExists(atPath: expertsURL.appendingPathComponent("manifest.json").path)
     }
 
     // ── DSpark 投机解码 ───────────────────────────────────────────────────────
@@ -1049,9 +1055,17 @@ struct MiniCPMV47Const {
         lookaheadPrefetchDepth()
     }
 
-    /// 每个 expert slot 占多少字节 = 该层 4 个 family 的 bytes_per_expert 之和。
-    /// 从 manifest 读，避免把量化档位硬编码。
+    /// 每个 expert slot 占多少字节 = 该层全部 family 的 bytes_per_expert 之和。
+    ///
+    /// 两种布局都支持，且**都不硬编码量化档位**：
+    ///  - 单文件（`LCO-` / LES）：主 gguf 的 `les.moe.descriptor` 就是权威描述，
+    ///    走桥接层的 `mb_les_probe`（只读 header，不加载模型）；
+    ///  - 旧布局（`experts/`）：读 manifest，按 family 取各层平均。
     private static func bytesPerSlot(at expertsURL: URL) -> Int64? {
+        if let single = lesBytesPerSlot(at: expertsURL) {
+            return single
+        }
+
         let routed: Set<String> = ["ffn_gate_exps", "ffn_up_exps", "ffn_down_exps", "ffn_gate_up_exps"]
         let manifestURL = expertsURL.appendingPathComponent("manifest.json")
         guard let data = try? Data(contentsOf: manifestURL),
@@ -1076,6 +1090,34 @@ struct MiniCPMV47Const {
             total += v.sum / v.n
         }
         return total > 0 ? total : nil
+    }
+
+    /// 单文件 LES 布局的每 slot 字节：从主 gguf 的 descriptor 读。
+    ///
+    /// `expertsURL` 在单文件布局下指向模型所在目录（`resolveArtifacts` 把 modelURL 的
+    /// 父目录塞进来），所以先按文件名找，找不到再退回目录。
+    private static func lesBytesPerSlot(at expertsURL: URL) -> Int64? {
+        var isDir: ObjCBool = false
+        let candidates: [URL]
+        if FileManager.default.fileExists(atPath: expertsURL.path, isDirectory: &isDir), isDir.boolValue {
+            let name = modelFileNameResolved()
+            let direct = expertsURL.appendingPathComponent(name)
+            candidates = FileManager.default.fileExists(atPath: direct.path)
+                ? [direct]
+                : (try? FileManager.default.contentsOfDirectory(
+                        at: expertsURL, includingPropertiesForKeys: nil))?
+                    .filter { $0.pathExtension == "gguf" && $0.lastPathComponent.hasPrefix("LCO-") }
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
+        } else {
+            candidates = [expertsURL]
+        }
+        for url in candidates {
+            var perSlot: Int64 = 0
+            if mb_les_probe(url.path, nil, nil, &perSlot) != 0, perSlot > 0 {
+                return perSlot
+            }
+        }
+        return nil
     }
 
     /// p8d8：prefill / decode 都用 top-8，与 checkpoint / experts 的训练 K 一致。
@@ -1201,9 +1243,43 @@ struct MiniCPMV47Const {
         }
     }
 
-    /// 复刻 llama-moe-experts.cpp 的尺寸校验：manifest 里每个 routed bin 都必须够长。
+    /// 复刻引擎的尺寸校验：旧布局查 manifest 里的每个 routed bin，单文件布局查主 gguf。
     /// 手机上下载被截断过，llama 只会抛一句「too small for tensor」，这里提前查出来。
     static func expertsProblems(at expertsURL: URL) -> [ExpertsProblem] {
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: expertsURL.path, isDirectory: &isDir)
+
+        // 单文件布局：目录里是我们自己的模型文件，或直接传进来一个 gguf。
+        if !exists || !isDir.boolValue || lesBytesPerSlot(at: expertsURL) != nil {
+            let url: URL
+            if exists && !isDir.boolValue {
+                url = expertsURL
+            } else {
+                url = expertsURL.appendingPathComponent(modelFileNameResolved())
+            }
+            let actual = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? nil
+            guard let size = actual else {
+                return [ExpertsProblem(file: url.lastPathComponent, tensor: "-",
+                                       required: downloadFiles.first?.bytes ?? 0, actual: -1)]
+            }
+            // descriptor 能读通就说明 header 完整；再核对总字节数，防止尾部被截断
+            // （截断的尾部正好是专家区，header 校验看不出来）。
+            var nLayer: Int32 = 0
+            var nExpert: Int32 = 0
+            var perSlot: Int64 = 0
+            guard mb_les_probe(url.path, &nLayer, &nExpert, &perSlot) != 0 else {
+                return [ExpertsProblem(file: url.lastPathComponent, tensor: "les.moe.descriptor",
+                                       required: 0, actual: -1)]
+            }
+            let expected = downloadFiles.first(where: { $0.localName == url.lastPathComponent })?.bytes
+                ?? downloadFiles.first?.bytes ?? 0
+            if expected > 0 && size < expected {
+                return [ExpertsProblem(file: url.lastPathComponent, tensor: "les.moe.descriptor",
+                                       required: expected, actual: size)]
+            }
+            return []
+        }
+
         let routed: Set<String> = ["ffn_gate_exps", "ffn_up_exps", "ffn_down_exps", "ffn_gate_up_exps"]
         let manifestURL = expertsURL.appendingPathComponent("manifest.json")
         guard let data = try? Data(contentsOf: manifestURL),
@@ -1243,8 +1319,14 @@ struct MiniCPMV47Const {
     }
 
     /// `requireMMProj=false` 用于纯文本基准路径（`-moeTextOnly`）：
-    /// 那条路只用 model + experts，不需要 1.04GB 的视觉塔。
+    /// 那条路只用 model，不需要 1.04GB 的视觉塔。
     /// 正常启动一律走 `requireMMProj=true`，行为与原来完全一致。
+    ///
+    /// 两种布局都认：
+    ///  - **单文件**（默认）：主 gguf 自带专家，`expertsURL` 记模型所在目录 ——
+    ///    下游的 `bytesPerSlot` / `expertsProblems` 会自己认出这是单文件布局；
+    ///  - **旧布局**（`experts/` 目录）：只有显式给 `-moeExpertsDir` 时才走，
+    ///    或者现场里存在那个目录而单文件不存在（老用户升级）。
     static func resolveArtifacts(in documentsDirectory: URL, requireMMProj: Bool) -> Artifacts? {
         let roots = [
             documentsDirectory.appendingPathComponent(documentsDirName),
@@ -1254,17 +1336,23 @@ struct MiniCPMV47Const {
         // 允许启动参数覆盖，便于同一台设备上并存多份量化做 A/B（见 modelFileNameResolved）。
         let modelName = modelFileNameResolved()
         let expertsName = expertsDirNameResolved()
+        let expertsOverridden = ProcessInfo.processInfo.arguments.contains("-moeExpertsDir")
         for root in roots {
             let model = root.appendingPathComponent(modelName)
             let mmproj = root.appendingPathComponent(mmprojFileName)
             let experts = root.appendingPathComponent(expertsName)
             var isDir: ObjCBool = false
             let mmprojOK = !requireMMProj || fm.fileExists(atPath: mmproj.path)
-            if fm.fileExists(atPath: model.path),
-               mmprojOK,
-               fm.fileExists(atPath: experts.path, isDirectory: &isDir), isDir.boolValue {
-                print("[MODEL] resolved model=\(modelName) experts=\(expertsName) root=\(root.lastPathComponent)")
-                return Artifacts(modelURL: model, mmprojURL: mmproj, expertsURL: experts)
+            let hasModel = fm.fileExists(atPath: model.path)
+            let hasExpertsDir = fm.fileExists(atPath: experts.path, isDirectory: &isDir) && isDir.boolValue
+
+            if hasModel && mmprojOK && (expertsOverridden ? hasExpertsDir : true) {
+                // 单文件布局下没有独立的 experts 目录：把模型所在目录交出去，
+                // 由 bytesPerSlot(at:) 按 LCO- 前缀找到主 gguf 并读 descriptor。
+                let expertsURL = hasExpertsDir ? experts : root
+                print("[MODEL] resolved model=\(modelName) experts=\(expertsURL.lastPathComponent)"
+                      + " (\(hasExpertsDir ? "manifest" : "in-model")) root=\(root.lastPathComponent)")
+                return Artifacts(modelURL: model, mmprojURL: mmproj, expertsURL: expertsURL)
             }
         }
         return nil
@@ -1273,8 +1361,7 @@ struct MiniCPMV47Const {
     static var copyInstructions: String {
         """
         模型文件需放在 App Documents 下的 \(documentsDirName)/ 目录：
-        \(documentsDirName)/\(modelFileName)
+        \(documentsDirName)/\(modelFileName)   ← 专家已内联在这一个文件里
         \(documentsDirName)/\(mmprojFileName)
-        \(documentsDirName)/experts/manifest.json + layer_000.bin … layer_039.bin
         """
     }}
