@@ -60,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private val messages = mutableListOf<ChatMessage>()
     private var createdWithLocale: String? = null
     private var isLocaleRestart = false
+    private var leavingForOcr = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +70,16 @@ class MainActivity : AppCompatActivity() {
         // The chat interface is only meaningful for LLM/VLM models.
         if (shouldRedirectToTts()) {
             startActivity(Intent(this, TtsActivity::class.java))
+            finish()
+            return
+        }
+        if (shouldRedirectToOcr()) {
+            leavingForOcr = true
+            val next = Intent(this, OcrActivity::class.java)
+            intent.getStringExtra(OcrActivity.EXTRA_OCR_PATH)?.let { path ->
+                next.putExtra(OcrActivity.EXTRA_OCR_PATH, path)
+            }
+            startActivity(next)
             finish()
             return
         }
@@ -338,6 +349,10 @@ class MainActivity : AppCompatActivity() {
     private fun shouldRedirectToTts(): Boolean {
         val model = LlamaEngine.getSelectedModel(applicationContext)
         return model.isTts
+    }
+
+    private fun shouldRedirectToOcr(): Boolean {
+        return LlamaEngine.getSelectedModel(applicationContext).isOcr
     }
 
     private fun updateUIForModelType() {
@@ -714,6 +729,16 @@ class MainActivity : AppCompatActivity() {
             finish()
             return
         }
+        if (shouldRedirectToOcr()) {
+            leavingForOcr = true
+            val next = Intent(this, OcrActivity::class.java)
+            intent.getStringExtra(OcrActivity.EXTRA_OCR_PATH)?.let { path ->
+                next.putExtra(OcrActivity.EXTRA_OCR_PATH, path)
+            }
+            startActivity(next)
+            finish()
+            return
+        }
         if (!::engine.isInitialized) return
         val selectedId = LlamaEngine.getSelectedModel(applicationContext).id
 
@@ -751,7 +776,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        if (isFinishing && !isLocaleRestart && ::engine.isInitialized) {
+        if (isFinishing && !isLocaleRestart && !leavingForOcr && ::engine.isInitialized) {
             engine.destroy()
         }
         super.onDestroy()

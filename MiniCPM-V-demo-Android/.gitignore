@@ -26,6 +26,15 @@ app/.cxx/
 # Native libs produced by the buildGgmlCpu_v86 task (built per-machine).
 app/src/main/jniLibs/
 
+# QNN SDK headers are Qualcomm "Confidential and Proprietary" — never publish them.
+# Copy from $QNN_SDK_ROOT/include/QNN when building the NPU path.
+app/src/main/cpp/qnn-include/
+app/src/main/assets/qnn/
+
+# Vulkan-Hpp headers, vendored because the NDK ships only the C headers.
+# Pulled in at build time (see CMakeLists.txt), not part of the source tree.
+app/src/main/cpp/third_party/
+
 *.gguf
 *.bin
 

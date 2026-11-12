@@ -304,7 +304,7 @@ class ModelManagerActivity : AppCompatActivity() {
     private fun loadSelectedModel() {
         val model = LlamaEngine.getSelectedModel(applicationContext)
         // TTS models are loaded on-demand by TtsActivity, not via LlamaEngine.
-        if (model.isTts) {
+        if (model.isTts || model.isOcr) {
             LlamaEngine.markModelSwitched(applicationContext)
             finish() // return to parent; MainActivity will redirect
             return
@@ -366,9 +366,9 @@ class ModelManagerActivity : AppCompatActivity() {
         val model = LlamaEngine.getSelectedModel(this)
         val fileList = buildString {
             append("• ${model.ggufFileName}")
-            if (model.mmprojFileName != null) {
-                append("\n• ${model.mmprojFileName}")
-            }
+            model.mmprojFileName?.let { append("\n• $it") }
+            model.layoutFileName?.let { append("\n• $it") }
+            model.acousticFileName?.let { append("\n• $it") }
         }
         AlertDialog.Builder(this)
             .setTitle(R.string.delete_dialog_title)
@@ -387,6 +387,8 @@ class ModelManagerActivity : AppCompatActivity() {
                 var deleted = false
                 File(modelPath).let { if (it.exists()) { it.delete(); deleted = true } }
                 mmprojPath?.let { File(it) }?.let { if (it.exists()) { it.delete(); deleted = true } }
+                val layoutPath = LlamaEngine.layoutPath(applicationContext)
+                layoutPath?.let { File(it) }?.let { if (it.exists()) { it.delete(); deleted = true } }
                 // Also delete the acoustic GGUF for TTS models
                 val acousticPath = LlamaEngine.acousticPath(applicationContext)
                 acousticPath?.let { File(it) }?.let { if (it.exists()) { it.delete(); deleted = true } }

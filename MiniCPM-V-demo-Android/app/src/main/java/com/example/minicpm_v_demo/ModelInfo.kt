@@ -35,6 +35,15 @@ data class ModelInfo(
     val ggufFileName: String,
     val mmprojFileName: String? = null,
     val acousticFileName: String? = null,
+    val layoutFileName: String? = null,
+    /**
+     * Optional QNN context binary for the OCR vision tower. Registered here so
+     * the artifact has a declared home, but it has **no** remote path yet: it
+     * is an offline QAIRT conversion that has to be produced per SoC, so the
+     * downloader never fetches it and the app falls back to the ggml vision
+     * tower whenever the file is absent. See QnnVit for the manual push.
+     */
+    val qnnVitFileName: String? = null,
     val hfRepo: String? = null,
     val msRepo: String? = null,
     val hfBranch: String = "main",
@@ -42,12 +51,14 @@ data class ModelInfo(
     val ggufRemoteName: String? = null,
     val mmprojRemoteName: String? = null,
     val acousticRemoteName: String? = null,
+    val layoutRemoteName: String? = null,
     val directGgufUrl: String? = null,
     val directMmprojUrl: String? = null,
     val directAcousticUrl: String? = null,
     val ggufMd5: String? = null,
     val mmprojMd5: String? = null,
-    val acousticMd5: String? = null
+    val acousticMd5: String? = null,
+    val layoutMd5: String? = null,
 ) {
     /** True for text-only models that have no vision projector. */
     val isTextOnly: Boolean
@@ -56,6 +67,10 @@ data class ModelInfo(
     /** True for TTS (text-to-speech) models with acoustic component. */
     val isTts: Boolean
         get() = acousticFileName != null
+
+    /** MiniCPM-OCR 1.0: LLM + 4x mmproj + PP-DocLayoutV3 ONNX. */
+    val isOcr: Boolean
+        get() = layoutFileName != null
 
     /** MiniCPM5 (text) and MiniCPM-V-4.6 expose a thinking toggle. */
     val supportsThinking: Boolean
@@ -77,6 +92,10 @@ data class ModelInfo(
     /** Path segment to request on HF/MS for the acoustic GGUF, falling back to local name. */
     val acousticRemotePath: String?
         get() = acousticFileName?.let { acousticRemoteName ?: it }
+
+    /** Path segment to request on HF/MS for the layout ONNX, falling back to local name. */
+    val layoutRemotePath: String?
+        get() = layoutFileName?.let { layoutRemoteName ?: it }
 
     /** Whether the model registers a direct (non-HF/MS) mirror URL for all required files. */
     val hasDirectUrls: Boolean
@@ -176,6 +195,26 @@ data class ModelInfo(
                 directAcousticUrl = null,
                 ggufMd5 = "d8cd571526464d225187d326caa289be",
                 acousticMd5 = "0f16229cfffe935102d21433f6969f8b"
+            ),
+            // MiniCPM-OCR 1.0 — iOS-only until this entry. Three files under
+            // MiniCPM-OCR-1.0/ on the same HF/MS repos the iOS demo races.
+            // The 4x mmproj is not interchangeable with the chat mmproj.
+            ModelInfo(
+                id = "minicpm-ocr-1.0",
+                displayName = "MiniCPM-OCR 1.0",
+                descriptionResName = "model_desc_ocr",
+                ggufFileName = "MiniCPM-OCR-1_0-Q4_K_M.gguf",
+                mmprojFileName = "MiniCPM-OCR-1_0-mmproj-F16-4x.gguf",
+                layoutFileName = "PPDocLayoutV3_fix4.onnx",
+                qnnVitFileName = "vit_linear_1024.bin",
+                hfRepo = "tc-mb/MiniCPM-V-Apps-gguf",
+                msRepo = "zerg13/MiniCPM-V-Apps-gguf",
+                ggufRemoteName = "MiniCPM-OCR-1.0/MiniCPM-OCR-1_0-Q4_K_M.gguf",
+                mmprojRemoteName = "MiniCPM-OCR-1.0/MiniCPM-OCR-1_0-mmproj-F16-4x.gguf",
+                layoutRemoteName = "MiniCPM-OCR-1.0/PPDocLayoutV3_fix4.onnx",
+                ggufMd5 = "4f8f6f58429dc9a584c70c490a120dfd",
+                mmprojMd5 = "5dc7d0b598700f10581bbbcc0e420056",
+                layoutMd5 = "d1a03f12240c5ae0cad14155e6c2c41b",
             )
         )
 

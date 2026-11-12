@@ -43,6 +43,10 @@ android {
                 arguments += "-DGGML_NATIVE=OFF"
                 arguments += "-DGGML_LLAMAFILE=ON"
                 arguments += "-DLLAMA_CURL=OFF"
+                // 16 KB page size. NDK r27 still defaults to 4 KB LOAD alignment.
+                arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                // GPU inference. Paths are filled in by app/src/main/cpp/CMakeLists.txt.
+                arguments += "-DGGML_VULKAN=ON"
             }
         }
     }
@@ -100,6 +104,7 @@ android {
     androidResources {
         noCompress.add("gguf")
         noCompress.add("bin")
+        noCompress.add("onnx")
     }
 }
 
@@ -116,6 +121,11 @@ dependencies {
 
     // Markdown rendering for AI streaming responses (headings, bold, lists, code, etc.)
     implementation("io.noties.markwon:core:4.6.2")
+    // Renders $$...$$ math in OCR output. Pulls in ru.noties:jlatexmath-android,
+    // whose fonts are latin-only -- CJK inside \text{} cannot be shown and is
+    // stripped before rendering (see OcrLatexMarkdown).
+    implementation("io.noties.markwon:ext-latex:4.6.2")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -165,6 +175,7 @@ tasks.register("buildGgmlCpu_v86") {
             "-DLLAMA_BUILD_TOOLS=ON",
             "-DGGML_NATIVE=OFF",
             "-DGGML_LLAMAFILE=ON",
+            "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
             "-DGGML_CPU_ARM_ARCH=armv8.6-a+dotprod+i8mm+fp16+bf16",
             "-S", file("src/main/cpp").absolutePath,
             "-B", bd.absolutePath,

@@ -157,9 +157,31 @@ class LlamaEngine private constructor(
             return File(modelDirFor(context, model), acoustic).absolutePath
         }
 
+        fun layoutPath(context: Context): String? {
+            val model = getSelectedModel(context)
+            val layout = model.layoutFileName ?: return null
+            return File(modelDirFor(context, model), layout).absolutePath
+        }
+
+        /**
+         * QNN context binary for the OCR vision tower, or null when the model
+         * declares none. Never part of [modelsExist]: the file is optional and
+         * its absence only downgrades OCR to the ggml vision tower.
+         */
+        fun qnnVitPath(context: Context): String? {
+            val model = getSelectedModel(context)
+            val name = model.qnnVitFileName ?: return null
+            return File(modelDirFor(context, model), name).absolutePath
+        }
+
         fun modelsExist(context: Context): Boolean {
             val model = getSelectedModel(context)
             if (!File(modelPath(context)).exists()) return false
+            if (model.isOcr) {
+                val mp = mmprojPath(context) ?: return false
+                val lp = layoutPath(context) ?: return false
+                return File(mp).exists() && File(lp).exists()
+            }
             if (model.isTextOnly) return true
             if (model.isTts) {
                 val ap = acousticPath(context) ?: return true
@@ -206,6 +228,13 @@ class LlamaEngine private constructor(
                 // BaseLM was quantized from F16 to Q4_K_M (~3.1 GB → ~1.0 GB).
                 "VoxCPM2-BaseLM-F16.gguf" to "VoxCPM2-BaseLM-Q4_K_M.gguf"
             )
+        )
+
+        // Previous OCR checkpoint. Bytes do not match the current files, so
+        // renaming would fail the MD5 check anyway. Delete them.
+        private val STALE_OCR_NAMES = listOf(
+            "MiniCPM-V-4_6-OCR-Q4_K_M.gguf",
+            "MiniCPM-V-4_6-OCR-mmproj-F16.gguf",
         )
 
         // Pre-v2.0 the v4.6 mmproj came from a temporary OBS bucket and went
@@ -257,6 +286,25 @@ class LlamaEngine private constructor(
                         val dst = File(targetDir, model.mmprojFileName)
                         if (!dst.exists() && flatMmproj.renameTo(dst)) {
                             Log.i(TAG, "Migrated legacy ${model.mmprojFileName} into ${model.id}/")
+                        }
+                    }
+                    val flatLayout = model.layoutFileName?.let { File(rootDir, it) }
+                    if (flatLayout != null && flatLayout.exists() && model.layoutFileName != null) {
+                        if (!targetDir.exists()) targetDir.mkdirs()
+                        val dst = File(targetDir, model.layoutFileName)
+                        if (!dst.exists() && flatLayout.renameTo(dst)) {
+                            Log.i(TAG, "Migrated legacy ${model.layoutFileName} into ${model.id}/")
+                        }
+                    }
+                }
+                if (model.isOcr) {
+                    val perModelDir = File(rootDir, model.id)
+                    if (perModelDir.exists()) {
+                        for (name in STALE_OCR_NAMES) {
+                            val f = File(perModelDir, name)
+                            if (f.exists() && f.delete()) {
+                                Log.i(TAG, "Purged stale OCR file ${model.id}/$name")
+                            }
                         }
                     }
                 }
@@ -311,7 +359,23 @@ class LlamaEngine private constructor(
         fun inferMinicpmvVersion(model: ModelInfo): Int = when (model.id) {
             "minicpm-v-4_6-instruct" -> 46
             "minicpm-v-4"            -> 5
+            // OCR 1.0 text tower is Qwen3.5. 471 folds the image into the
+            // user turn and uses an empty <think> assistant header.
+            "minicpm-ocr-1.0"        -> 471
             else                     -> 0
+        }
+
+        private fun modelScopeFileUrl(model: ModelInfo, remotePath: String): URL {
+            // iOS OCR uses the ModelScope repo API. Nested FilePath is not
+            // encoded. Other models keep the resolve URL this demo already races.
+            return if (model.isOcr) {
+                URL(
+                    "https://modelscope.cn/api/v1/models/${model.msRepo}/repo" +
+                        "?Revision=${model.msBranch}&FilePath=$remotePath"
+                )
+            } else {
+                URL("https://www.modelscope.cn/models/${model.msRepo}/resolve/${model.msBranch}/$remotePath")
+            }
         }
 
         // Per-file source descriptor used by [downloadFileMultiSource] / racing.
@@ -351,20 +415,28 @@ class LlamaEngine private constructor(
             val ggufSources = mutableListOf<FileSource>()
             val mmprojSources = mutableListOf<FileSource>()
             val acousticSources = mutableListOf<FileSource>()
+            val layoutSources = mutableListOf<FileSource>()
 
             if (model.hasHfMsSources) {
                 val hfBase = "https://huggingface.co/${model.hfRepo}/resolve/${model.hfBranch}"
-                val msBase = "https://www.modelscope.cn/models/${model.msRepo}/resolve/${model.msBranch}"
                 ggufSources.add(FileSource("HuggingFace", URL("$hfBase/${model.ggufRemotePath}")))
-                ggufSources.add(FileSource("ModelScope", URL("$msBase/${model.ggufRemotePath}")))
+                ggufSources.add(FileSource("ModelScope", modelScopeFileUrl(model, model.ggufRemotePath)))
                 if (model.isTts) {
                     model.acousticRemotePath?.let { rp ->
                         acousticSources.add(FileSource("HuggingFace", URL("$hfBase/$rp")))
-                        acousticSources.add(FileSource("ModelScope", URL("$msBase/$rp")))
+                        acousticSources.add(FileSource("ModelScope", modelScopeFileUrl(model, rp)))
                     }
                 } else if (!model.isTextOnly) {
-                    mmprojSources.add(FileSource("HuggingFace", URL("$hfBase/${model.mmprojRemotePath}")))
-                    mmprojSources.add(FileSource("ModelScope", URL("$msBase/${model.mmprojRemotePath}")))
+                    model.mmprojRemotePath?.let { rp ->
+                        mmprojSources.add(FileSource("HuggingFace", URL("$hfBase/$rp")))
+                        mmprojSources.add(FileSource("ModelScope", modelScopeFileUrl(model, rp)))
+                    }
+                }
+                if (model.isOcr) {
+                    model.layoutRemotePath?.let { rp ->
+                        layoutSources.add(FileSource("HuggingFace", URL("$hfBase/$rp")))
+                        layoutSources.add(FileSource("ModelScope", modelScopeFileUrl(model, rp)))
+                    }
                 }
             }
             if (!model.directGgufUrl.isNullOrBlank()) {
@@ -386,6 +458,9 @@ class LlamaEngine private constructor(
             if (!model.isTextOnly && !model.isTts && mmprojSources.isEmpty()) {
                 throw RuntimeException("Model ${model.id} has no mmproj download source configured")
             }
+            if (model.isOcr && layoutSources.isEmpty()) {
+                throw RuntimeException("Model ${model.id} has no layout ONNX download source configured")
+            }
 
             val files = mutableListOf(
                 FileSpec(model.ggufFileName, ggufSources, model.ggufMd5),
@@ -396,6 +471,13 @@ class LlamaEngine private constructor(
             if (!model.isTextOnly && !model.isTts && model.mmprojFileName != null) {
                 files.add(FileSpec(model.mmprojFileName, mmprojSources, model.mmprojMd5))
             }
+            if (model.isOcr && model.layoutFileName != null) {
+                files.add(FileSpec(model.layoutFileName, layoutSources, model.layoutMd5))
+            }
+            // model.qnnVitFileName is deliberately absent: the QNN context binary
+            // is a per-SoC offline conversion with no upstream object yet (see
+            // ModelInfo). QnnVit picks up a manually pushed copy, and OCR runs on
+            // the ggml vision tower when it is missing.
 
             val racedLabel = files.first().sources.joinToString("+") { it.label }
             onProgress(context.getString(R.string.download_race_start, racedLabel))
@@ -895,7 +977,11 @@ class LlamaEngine private constructor(
     // 0 if no mmproj is loaded.  46 / 460 / 461 = MiniCPM-V-4.6 family.
     // Used by [isVideoUnderstandingSupported] to gate the video path.
     private external fun getMinicpmvVersionNative(): Int
+    private external fun setInferenceProfileNative(
+        nCtx: Int, temperature: Float, topK: Int, topP: Float, nUbatch: Int
+    )
     private external fun prepare(): Int
+    private external fun clearKvNative()
     private external fun systemInfo(): String
     private external fun processSystemPrompt(systemPrompt: String): Int
     private external fun processUserPrompt(userPrompt: String, predictLength: Int): Int
@@ -939,7 +1025,16 @@ class LlamaEngine private constructor(
         }
     }
 
-    suspend fun loadModel(pathToModel: String, pathToMmproj: String? = null) =
+    suspend fun loadModel(
+        pathToModel: String,
+        pathToMmproj: String? = null,
+        imageMaxSliceNums: Int? = null,
+        nCtx: Int = 0,
+        temperature: Float = -1f,
+        topK: Int = 0,
+        topP: Float = 1f,
+        nUbatch: Int = 0,
+    ) =
         withContext(llamaDispatcher) {
             check(_state.value is LlamaState.Initialized) {
                 "Cannot load model in ${_state.value.javaClass.simpleName}!"
@@ -954,6 +1049,7 @@ class LlamaEngine private constructor(
 
                 Log.i(TAG, "Loading model... \n$pathToModel")
                 _readyForSystemPrompt = false
+                _mmprojLoaded = false
                 _state.value = LlamaState.LoadingModel
                 load(pathToModel).let {
                     if (it != 0) throw RuntimeException("Failed to load model (code: $it)")
@@ -967,7 +1063,7 @@ class LlamaEngine private constructor(
                         require(it.canRead()) { "Cannot read mmproj file: $pathToMmproj" }
                     }
 
-                    val sliceCap = getImageMaxSliceNums(context)
+                    val sliceCap = imageMaxSliceNums ?: getImageMaxSliceNums(context)
                     Log.i(TAG, "Loading mmproj (image_max_slice_nums=$sliceCap)... \n$pathToMmproj")
                     loadMmproj(pathToMmproj, sliceCap).let {
                         if (it != 0) {
@@ -988,6 +1084,11 @@ class LlamaEngine private constructor(
                     }
                 }
 
+                if (!_mmprojLoaded) {
+                    setMinicpmvVersionNative(0)
+                }
+                val temp = if (temperature >= 0f) temperature else 0.7f
+                setInferenceProfileNative(nCtx, temp, topK, topP, nUbatch)
                 prepare().let {
                     if (it != 0) throw RuntimeException("Failed to prepare resources (code: $it)")
                 }
@@ -1148,6 +1249,11 @@ class LlamaEngine private constructor(
             }
             _state.value = LlamaState.ModelReady
         }
+    }
+
+    /** Drop KV and chat history without rebuilding the context. OCR calls this between crops. */
+    suspend fun clearKv() = withContext(llamaDispatcher) {
+        clearKvNative()
     }
 
     suspend fun clearContext() =

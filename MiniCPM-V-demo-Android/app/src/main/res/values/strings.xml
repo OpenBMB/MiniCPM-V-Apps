@@ -181,4 +181,22 @@
     <string name="tts_preset_load_failed">加载预设失败: %1$s</string>
     <string name="tts_baselm_missing">BaseLM GGUF 文件不存在，请下载模型</string>
     <string name="tts_acoustic_missing">Acoustic GGUF 文件不存在，请下载模型</string>
+
+    <string name="model_desc_ocr">文档 OCR，版面检测后逐块识别 (752M)</string>
+    <string name="ocr_title">MiniCPM-OCR 1.0</string>
+    <string name="ocr_pick">选择文件</string>
+    <string name="ocr_pick_pdf">选 PDF</string>
+    <string name="ocr_pick_album">选相册</string>
+    <string name="ocr_camera">拍照</string>
+    <string name="ocr_preview">当前识别区域</string>
+    <string name="ocr_camera_denied">需要相机权限才能拍照</string>
+    <string name="ocr_decode_failed">无法读取这个文件</string>
+    <string name="ocr_failed">识别失败: %1$s</string>
+    <string name="ocr_status_idle">选择图片或 PDF</string>
+    <string name="ocr_status_loading">正在加载 OCR 模型…</string>
+    <string name="ocr_status_ready">模型就绪</string>
+    <string name="ocr_status_page">第 %1$d / %2$d 页</string>
+    <string name="ocr_status_block">第 %1$d / %2$d 页 · %3$s</string>
+    <string name="ocr_status_done">识别完成</string>
+    <string name="ocr_status_cancel">已取消</string>
 </resources>

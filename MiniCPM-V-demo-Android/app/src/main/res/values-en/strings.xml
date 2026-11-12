@@ -178,4 +178,22 @@
     <string name="tts_preset_load_failed">Failed to load preset: %1$s</string>
     <string name="tts_baselm_missing">BaseLM GGUF file missing, please download</string>
     <string name="tts_acoustic_missing">Acoustic GGUF file missing, please download</string>
+
+    <string name="model_desc_ocr">Document OCR: layout detection, then per-block recognition (752M)</string>
+    <string name="ocr_title">MiniCPM-OCR 1.0</string>
+    <string name="ocr_pick">Choose file</string>
+    <string name="ocr_pick_pdf">PDF</string>
+    <string name="ocr_pick_album">Album</string>
+    <string name="ocr_camera">Camera</string>
+    <string name="ocr_preview">Current crop</string>
+    <string name="ocr_camera_denied">Camera permission is required</string>
+    <string name="ocr_decode_failed">Could not read this file</string>
+    <string name="ocr_failed">Recognition failed: %1$s</string>
+    <string name="ocr_status_idle">Choose an image or PDF</string>
+    <string name="ocr_status_loading">Loading OCR model…</string>
+    <string name="ocr_status_ready">Model ready</string>
+    <string name="ocr_status_page">Page %1$d / %2$d</string>
+    <string name="ocr_status_block">Page %1$d / %2$d · %3$s</string>
+    <string name="ocr_status_done">Done</string>
+    <string name="ocr_status_cancel">Cancelled</string>
 </resources>

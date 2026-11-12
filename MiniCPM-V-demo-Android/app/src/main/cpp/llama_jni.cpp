@@ -2,6 +2,7 @@
 #include <jni.h>
 #include <iomanip>
 #include <cmath>
+#include <exception>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -13,6 +14,8 @@
 #include "sampling.h"
 #include "mtmd.h"
 #include "mtmd-helper.h"
+#include "ggml-backend.h"
+#include "qnn_vit.h"
 
 template<class T>
 static std::string join(const std::vector<T> &values, const std::string &delim) {
@@ -57,7 +60,6 @@ static mtmd_context                     * g_ctx_vision;
 // 100045 = o-4.5
 // 46/460/461 = V-4.6 (instruct/thinking)
 static int                                g_minicpmv_version = 0;
-
 // Most recent slice cap requested by the upper layer.  Persists across
 // loadMmproj calls so a user-chosen value survives e.g. an unload/reload
 // of the model.  Initial fallback = 9 (MiniCPM-V's built-in upper bound)
@@ -74,6 +76,19 @@ static int                                g_image_max_slice_nums = 9;
 // as a global rather than a llama_n_ctx() call so we don't depend on
 // llama-side defaults when llama_context_default_params changes.
 static int                                g_n_ctx = DEFAULT_CONTEXT_SIZE;
+
+// OCR (model version 471) overrides. Chat leaves these at the generation_config
+// defaults: temp 0.7, top_k disabled, top_p disabled, ubatch = n_batch.
+// Set from Kotlin before prepare(); fullReset() reuses them.
+static int                                g_override_n_ctx = 0;
+static float                              g_sampler_temp = DEFAULT_SAMPLER_TEMP;
+static int                                g_top_k = 0;
+static float                              g_top_p = 1.0f;
+static int                                g_n_ubatch = BATCH_SIZE;
+
+// Version 471 defers the image into the user turn. Bytes live here until
+// processUserPrompt tokenizes `<__media__>` inside <|im_start|>user.
+static std::vector<uint8_t>               g_pending_image_bytes;
 
 // MiniCPM5 / V-4.6 thinking toggle. Default off so the first reply is
 // not a long <think> dump.
@@ -99,6 +114,8 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_example_minicpm_1v_1demo_LlamaEngine_init(JNIEnv *env, jobject /*unused*/, jstring nativeLibDir) {
     llama_log_set(minicpm_android_log_callback, nullptr);
+    // Route mtmd logs (per-slice encode timing, image decode batch sizes) to logcat.
+    mtmd_helper_log_set(minicpm_android_log_callback, nullptr);
 
     const auto *path_to_backend = env->GetStringUTFChars(nativeLibDir, 0);
     LOGi("Loading backends from %s", path_to_backend);
@@ -111,6 +128,11 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_init(JNIEnv *env, jobject /*unused
     }
 
     LOGi("%s: Backend count: %zu", __func__, ggml_backend_reg_count());
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        LOGi("%s: device[%zu] %s type=%d", __func__, i,
+             ggml_backend_dev_name(dev), (int) ggml_backend_dev_type(dev));
+    }
 
     llama_backend_init();
     LOGi("Backend initiated; Log handler set.");
@@ -120,6 +142,13 @@ extern "C"
 JNIEXPORT jint JNICALL
 Java_com_example_minicpm_1v_1demo_LlamaEngine_load(JNIEnv *env, jobject, jstring jmodel_path) {
     llama_model_params model_params = llama_model_default_params();
+    // Language model stays on CPU. main_gpu < 0 with split NONE drops the GPU
+    // from this model's device list, so decode is not split across Vulkan.
+    // The vision encoder still picks the GPU on its own.
+    model_params.n_gpu_layers = 0;
+    model_params.split_mode = LLAMA_SPLIT_MODE_NONE;
+    model_params.main_gpu = -1;
+    LOGi("%s: n_gpu_layers=0 split=none main_gpu=-1", __func__);
 
     const auto *model_path = env->GetStringUTFChars(jmodel_path, 0);
     LOGi("%s: Loading model from: \n%s\n", __func__, model_path);
@@ -160,8 +189,16 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_loadMmproj(JNIEnv *env, jobject,
     LOGd("%s: Loading mmproj from: \n%s\n", __func__, mmproj_path);
 
     mtmd_context_params mparams = mtmd_context_params_default();
-    mparams.use_gpu   = false;
+    bool use_gpu = false;
+    for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+        const auto type = ggml_backend_dev_type(ggml_backend_dev_get(i));
+        if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+            use_gpu = true;
+        }
+    }
+    mparams.use_gpu = use_gpu;
     mparams.print_timings = false;
+    LOGi("%s: vision use_gpu=%d, llm graph stays on CPU", __func__, (int) use_gpu);
 
     g_image_max_slice_nums       = (jint) jimage_max_slice_nums;
     mparams.image_max_slice_nums = g_image_max_slice_nums;
@@ -254,7 +291,7 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
     }
     ctx_params.n_ctx = n_ctx;
     ctx_params.n_batch = BATCH_SIZE;
-    ctx_params.n_ubatch = BATCH_SIZE;
+    ctx_params.n_ubatch = g_n_ubatch;
     ctx_params.n_threads = N_THREADS;
     ctx_params.n_threads_batch = N_THREADS;
     auto *context = llama_init_from_model(g_model, ctx_params);
@@ -264,16 +301,14 @@ static llama_context *init_context(llama_model *model, const int n_ctx = DEFAULT
     return context;
 }
 
-static common_sampler *new_sampler(float temp) {
-    // Match the model's generation_config defaults: pure temperature sampling
-    // with top_k / top_p disabled and no repetition penalty. Keep this in
-    // lockstep with mtmd-ios.cpp so iOS and Android produce identical
-    // distributions for a given seed.
+static common_sampler *new_sampler() {
+    // Chat: temp 0.7, top_k disabled, top_p disabled.
+    // OCR (setInferenceProfile): temp 0.01, top_k 1, top_p 0.001.
     common_params_sampling sparams;
-    sparams.temp = temp;
-    sparams.top_k = 0;            // disabled
-    sparams.top_p = 1.0f;         // disabled
-    sparams.penalty_repeat = 1.0f; // disabled
+    sparams.temp = g_sampler_temp;
+    sparams.top_k = g_top_k;
+    sparams.top_p = g_top_p;
+    sparams.penalty_repeat = 1.0f;
     return common_sampler_init(g_model, sparams);
 }
 
@@ -287,8 +322,11 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_prepare(JNIEnv * /*env*/, jobject 
     const bool is_v46 = (g_minicpmv_version == 46) ||
                         (g_minicpmv_version == 460) ||
                         (g_minicpmv_version == 461);
-    const int  n_ctx  = is_v46 ? V46_CONTEXT_SIZE : DEFAULT_CONTEXT_SIZE;
-    LOGi("%s: minicpmv_version=%d -> n_ctx=%d", __func__, g_minicpmv_version, n_ctx);
+    const int  n_ctx  = g_override_n_ctx > 0
+                        ? g_override_n_ctx
+                        : (is_v46 ? V46_CONTEXT_SIZE : DEFAULT_CONTEXT_SIZE);
+    LOGi("%s: minicpmv_version=%d -> n_ctx=%d n_ubatch=%d temp=%.3f top_k=%d top_p=%.3f",
+         __func__, g_minicpmv_version, n_ctx, g_n_ubatch, g_sampler_temp, g_top_k, g_top_p);
 
     auto *context = init_context(g_model, n_ctx);
     if (!context) { return 1; }
@@ -296,8 +334,22 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_prepare(JNIEnv * /*env*/, jobject 
     g_n_ctx = n_ctx;
     g_batch = llama_batch_init(BATCH_SIZE, 0, 1);
     g_chat_templates = common_chat_templates_init(g_model, "");
-    g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP);
+    g_sampler = new_sampler();
     return 0;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_minicpm_1v_1demo_LlamaEngine_setInferenceProfileNative(
+        JNIEnv * /*env*/, jobject,
+        jint jn_ctx, jfloat jtemp, jint jtop_k, jfloat jtop_p, jint jn_ubatch) {
+    g_override_n_ctx = (int) jn_ctx;
+    g_sampler_temp = jtemp;
+    g_top_k = (int) jtop_k;
+    g_top_p = jtop_p;
+    g_n_ubatch = jn_ubatch > 0 ? (int) jn_ubatch : BATCH_SIZE;
+    LOGi("%s: n_ctx_override=%d temp=%.3f top_k=%d top_p=%.3f n_ubatch=%d",
+         __func__, g_override_n_ctx, g_sampler_temp, g_top_k, g_top_p, g_n_ubatch);
 }
 
 extern "C"
@@ -323,6 +375,7 @@ static void reset_long_term_states(const bool clear_kv_cache = true) {
     current_position = 0;
     g_image_prefilled = false;
     g_vision_mode = false;
+    g_pending_image_bytes.clear();
 
     if (clear_kv_cache)
         llama_memory_clear(llama_get_memory(g_context), false);
@@ -497,6 +550,18 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_prefillImage(
         return 2;
     }
 
+    // OCR 1.0 (471): keep the bytes. The media marker has to sit inside the
+    // user turn, which does not exist until processUserPrompt.
+    if (g_minicpmv_version == 471) {
+        g_pending_image_bytes.assign(
+            reinterpret_cast<const uint8_t *>(data),
+            reinterpret_cast<const uint8_t *>(data) + jimage_size);
+        env->ReleaseByteArrayElements(jimage_data, data, JNI_ABORT);
+        g_image_prefilled = true;
+        LOGi("%s: stashed %d image bytes for chatml user turn", __func__, jimage_size);
+        return 0;
+    }
+
     auto *bitmap = mtmd_helper_bitmap_init_from_buf(
         g_ctx_vision,
         reinterpret_cast<const unsigned char *>(data),
@@ -559,7 +624,7 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_fullReset(JNIEnv *, jobject) {
     llama_free(g_context);
     g_context = nullptr;
 
-    auto *context = init_context(g_model);
+    auto *context = init_context(g_model, g_n_ctx);
     if (!context) {
         LOGe("%s: Failed to reinitialize context!", __func__);
         return;
@@ -567,7 +632,7 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_fullReset(JNIEnv *, jobject) {
     g_context = context;
     g_batch = llama_batch_init(BATCH_SIZE, 0, 1);
     g_chat_templates = common_chat_templates_init(g_model, "");
-    g_sampler = new_sampler(DEFAULT_SAMPLER_TEMP);
+    g_sampler = new_sampler();
 
     LOGi("%s: Full reset complete - context recreated, KV cache fresh, sampler reinitialized", __func__);
 }
@@ -581,6 +646,150 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_nativeCancelGeneration(JNIEnv *, j
     cached_token_chars.clear();
     LOGi("%s: Generation cancelled, sampler reset, KV cache preserved at position %d",
          __func__, current_position);
+}
+
+// Evaluates chunks exactly like mtmd_helper_eval_chunks(), except that an
+// image chunk may be fed embeddings computed elsewhere -- the Hexagon NPU in
+// our case. Anything unexpected (no embedding published, or a token count that
+// does not match the chunk) silently falls back to the ggml encoder, so the
+// NPU is always an optimisation and never a correctness dependency.
+static int eval_chunks_with_npu(
+        mtmd_context * ctx,
+        llama_context * lctx,
+        const mtmd_input_chunks * chunks,
+        llama_pos n_past,
+        int32_t n_batch,
+        bool logits_last,
+        llama_pos * new_n_past) {
+    const size_t n_chunks = mtmd_input_chunks_size(chunks);
+    if (n_chunks == 0) {
+        *new_n_past = n_past;
+        return 0;
+    }
+
+    for (size_t i = 0; i < n_chunks; ++i) {
+        const bool chunk_logits_last = (i == n_chunks - 1) && logits_last;
+        const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+
+        int32_t res;
+        if (mtmd_input_chunk_get_type(chunk) == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            // Drain unconditionally. A stale embedding left over from a
+            // cancelled OCR run must never survive into the next turn, and the
+            // only way to guarantee that is to consume it here no matter what
+            // happens next.
+            int n_tokens = 0;
+            const float * embd = qnnvit::take_pending(&n_tokens);
+            const int32_t want = (int32_t) mtmd_input_chunk_get_n_tokens(chunk);
+            // Version 471 is MiniCPM-OCR 1.0, the only tower this binary was
+            // built from. Other MiniCPM-V builds also produce 256 tokens for a
+            // 448x448 input, so a token-count check alone would happily feed
+            // one model's embedding to another and silently corrupt its output.
+            const bool npu_matches_model = (g_minicpmv_version == 471);
+            if (npu_matches_model && embd != nullptr && n_tokens == want) {
+                LOGi("%s: image chunk fed from NPU (%d tokens)", __func__, n_tokens);
+                // The OCR prompt always puts text after the image, so the
+                // image chunk is never the one that needs logits.
+                res = mtmd_helper_decode_image_chunk(ctx, lctx, chunk,
+                        const_cast<float *>(embd), n_past, 0, n_batch, &n_past);
+            } else {
+                if (embd != nullptr) {
+                    if (!npu_matches_model) {
+                        LOGw("%s: dropping NPU embedding, minicpmv_version=%d is not the OCR tower",
+                             __func__, g_minicpmv_version);
+                    } else {
+                        LOGw("%s: NPU embedding has %d tokens, chunk wants %d - using ggml",
+                             __func__, n_tokens, want);
+                    }
+                }
+                res = mtmd_helper_eval_chunk_single(ctx, lctx, chunk, n_past, 0,
+                                                    n_batch, chunk_logits_last, &n_past);
+            }
+        } else {
+            res = mtmd_helper_eval_chunk_single(ctx, lctx, chunk, n_past, 0,
+                                                n_batch, chunk_logits_last, &n_past);
+        }
+
+        if (res != 0) {
+            LOGe("%s: chunk %zu failed (%d)", __func__, i, res);
+            return res;
+        }
+        *new_n_past = n_past;
+    }
+    return 0;
+}
+
+// OCR 1.0 / version 471. Image marker sits inside the user turn and the
+// assistant header is an empty <think> block. Mirrors MBMtmd.mm prefill_text
+// for is_chatml_image_deferred.
+static int prefill_chatml_user_turn(const std::string & content, int n_predict) {
+    const bool has_image = !g_pending_image_bytes.empty();
+    std::string formatted = "<|im_start|>user\n";
+    if (has_image) {
+        formatted += std::string(mtmd_default_marker()) + "\n";
+    }
+    formatted += content;
+    formatted += "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n";
+    LOGi("%s: chatml user turn image=%d chars=%zu", __func__, (int) has_image, formatted.size());
+
+    mtmd_bitmap * bitmap = nullptr;
+    if (has_image) {
+        bitmap = mtmd_helper_bitmap_init_from_buf(
+            g_ctx_vision,
+            g_pending_image_bytes.data(),
+            g_pending_image_bytes.size());
+        g_pending_image_bytes.clear();
+        if (!bitmap) {
+            LOGe("%s: failed to decode stashed image", __func__);
+            return 3;
+        }
+    }
+
+    mtmd_input_text text;
+    text.text = formatted.c_str();
+    text.add_special = current_position == 0;
+    text.parse_special = true;
+
+    mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+    const mtmd_bitmap * bitmaps_cptr[] = { bitmap };
+    const int32_t res = mtmd_tokenize(
+        g_ctx_vision, chunks, &text,
+        bitmap ? bitmaps_cptr : nullptr,
+        bitmap ? 1 : 0);
+    if (bitmap) mtmd_bitmap_free(bitmap);
+    if (res != 0) {
+        LOGe("%s: mtmd_tokenize failed %d", __func__, res);
+        mtmd_input_chunks_free(chunks);
+        return 2;
+    }
+
+    llama_pos new_n_past = current_position;
+    if (eval_chunks_with_npu(g_ctx_vision, g_context, chunks,
+                             current_position, BATCH_SIZE,
+                             true, &new_n_past)) {
+        LOGe("%s: eval_chunks_with_npu failed", __func__);
+        mtmd_input_chunks_free(chunks);
+        return 2;
+    }
+    current_position = new_n_past;
+    generation_start_position = current_position;
+    stop_generation_position = current_position + n_predict;
+    mtmd_input_chunks_free(chunks);
+    g_image_prefilled = false;
+    return 0;
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_example_minicpm_1v_1demo_LlamaEngine_clearKvNative(JNIEnv *, jobject) {
+    if (g_context) {
+        reset_long_term_states(true);
+    } else {
+        g_pending_image_bytes.clear();
+        g_image_prefilled = false;
+    }
+    reset_short_term_states();
+    if (g_sampler) common_sampler_reset(g_sampler);
+    LOGi("%s: KV cleared", __func__);
 }
 
 extern "C"
@@ -599,6 +808,11 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_processUserPrompt(
     std::string content_for_format(user_prompt);
     if (content_for_format.empty()) {
         content_for_format = " ";
+    }
+    env->ReleaseStringUTFChars(juser_prompt, user_prompt);
+
+    if (g_minicpmv_version == 471) {
+        return prefill_chatml_user_turn(content_for_format, n_predict);
     }
 
     std::string formatted_user_prompt;
@@ -635,7 +849,6 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_processUserPrompt(
         }
         apply_minicpm5_thinking_suffix(formatted_user_prompt);
     }
-    env->ReleaseStringUTFChars(juser_prompt, user_prompt);
 
     if (formatted_user_prompt.size() >= 8 &&
         formatted_user_prompt.compare(formatted_user_prompt.size() - 8, 8, "<think>\n") == 0) {
@@ -737,7 +950,7 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_generateNextToken(
     }
 
     if (current_position >= stop_generation_position) {
-        LOGw("%s: STOP: hitting stop position: %d", __func__, stop_generation_position);
+        LOGw("%s: STOP: hitting stop position: %d text=%s", __func__, stop_generation_position, assistant_ss.str().c_str());
         return nullptr;
     }
 
@@ -765,7 +978,19 @@ Java_com_example_minicpm_1v_1demo_LlamaEngine_generateNextToken(
                 assistant_content.erase(0, 1);
             }
         }
-        chat_add_and_format(ROLE_ASSISTANT, assistant_content);
+        // OCR prefills ChatML itself and never records the user turn.
+        // The GGUF Jinja template then raises "No user query found" and
+        // the uncaught C++ exception aborts the process. iOS just ends
+        // the turn here, so version 471 does the same.
+        if (g_minicpmv_version != 471) {
+            try {
+                chat_add_and_format(ROLE_ASSISTANT, assistant_content);
+            } catch (const std::exception &e) {
+                LOGe("%s: chat template failed, ending turn: %s", __func__, e.what());
+            }
+        } else {
+            LOGi("OCR_OUT chars=%zu\n%s", assistant_content.size(), assistant_content.c_str());
+        }
         return nullptr;
     }
 
