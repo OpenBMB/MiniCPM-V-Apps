@@ -20,7 +20,7 @@
 * `MiniCPM-V-demo-Android/` — Android demo（Gradle / Kotlin）
 * `MiniCPM-V-demo-HarmonyOS/` — HarmonyOS NEXT demo（DevEco Studio / ArkTS）
 
-三端共享仓库根目录的同一份 `llama.cpp-omni` 子模块。
+三端共享仓库根目录的同一份 `llama.cpp-omni` 子模块（跟随 `master`）。
 
 > **提示**：本项目通过 git submodule 引入 `llama.cpp`。子模块上游 `tc-mb/llama.cpp-omni` 还有十几个无关分支，全量 clone 要拉 ~350 MB，所以 `.gitmodules` 里默认 `shallow = true`。推荐用如下 **shallow + single-branch** 方式 clone：
 >
@@ -37,7 +37,7 @@
 > git submodule update --init --recursive --depth 1 --single-branch
 > ```
 >
-> 这样只会拉 `ios-omni` 分支的单 commit（约几十 MB），不会拉整个 llama.cpp-omni fork 的全 history。需要 push 到 `tc-mb/llama.cpp-omni:ios-omni` 的开发者可在 submodule 里执行 `git fetch --unshallow` 取消浅 clone。
+> 这样只会拉指针指向的单个 commit（约几十 MB），不会拉整个 llama.cpp-omni fork 的全 history。需要 push 到 `tc-mb/llama.cpp-omni` 的开发者可在 submodule 里执行 `git fetch --unshallow` 取消浅 clone。
 
 README 分为两大部分：
 

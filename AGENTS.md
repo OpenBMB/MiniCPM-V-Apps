@@ -41,7 +41,7 @@ open & run" walkthrough for each platform.
 ## 2. The `llama.cpp-omni` submodule
 
 - URL: `https://github.com/tc-mb/llama.cpp-omni.git`
-- Branch: `ios-omni`
+- Branch: `master`
 - `.gitmodules` is marked `shallow = true`
 
 Recommended clone (one-shot, parent + submodule both shallow):
@@ -59,11 +59,12 @@ git submodule update --init --recursive --depth 1 --single-branch
 
 **Agent notes**
 
-- ❌ Do **not** switch the submodule branch (it is pinned to `ios-omni`).
+- ❌ Do **not** switch the submodule to a side branch. It tracks `master`; everything the three
+  clients need is on `master`, and the old `ios-omni` branch has been retired.
 - ❌ Do **not** commit upstream-only changes (e.g. random edits to `convert_hf_to_gguf.py`)
   inside the submodule without explicit user confirmation.
 - ✅ If you do edit the submodule on purpose: `git commit` + `git push` to
-  `tc-mb/llama.cpp-omni:ios-omni` first, then in the parent repo `git add llama.cpp-omni && git
+  `tc-mb/llama.cpp-omni:master` first, then in the parent repo `git add llama.cpp-omni && git
   commit` to bump the pointer.
 
 ---
@@ -190,7 +191,7 @@ artefacts live in `MiniCPMModelConst+OCR.swift` (`ocr_LLMMD5` / `ocr_MMProjMD5` 
 mirror) must carry byte-identical files, because the downloader races them and MD5-checks the
 winner.
 
-> **mmproj layout caveat**: `ios-omni` resolves the projector type from the GGUF's
+> **mmproj layout caveat**: the engine resolves the projector type from the GGUF's
 > `clip.projector_type` and accepts `minicpmv4_6`, `minicpmv4_7` and `minicpm_ocr_1_0`. A
 > 4x mmproj (`clip.vision.projector.scale_factor=2`) drops the ViT merger and takes the 4x
 > graph; a 16x mmproj keeps it. Chat mmproj and the OCR mmproj are **not** interchangeable.

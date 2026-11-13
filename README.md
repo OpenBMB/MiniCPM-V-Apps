@@ -20,7 +20,7 @@ This repository contains three on-device demos for MiniCPM-V (multimodal LLM) ru
 * `MiniCPM-V-demo-Android/` — Android demo (Gradle / Kotlin)
 * `MiniCPM-V-demo-HarmonyOS/` — HarmonyOS NEXT demo (DevEco Studio / ArkTS)
 
-All three demos share the same `llama.cpp-omni` submodule (branch `ios-omni`) at the repo root.
+All three demos share the same `llama.cpp-omni` submodule (tracking `master`) at the repo root.
 
 > **NOTE**: This project bundles `llama.cpp` as a git submodule. The upstream fork `tc-mb/llama.cpp-omni` carries a dozen unrelated branches and a full clone weighs ~350 MB, so `shallow = true` is set in `.gitmodules` by default. The recommended **shallow + single-branch** clone is:
 >
@@ -37,7 +37,7 @@ All three demos share the same `llama.cpp-omni` submodule (branch `ios-omni`) at
 > git submodule update --init --recursive --depth 1 --single-branch
 > ```
 >
-> This only pulls a single commit of the `ios-omni` branch (~tens of MB) instead of the full llama.cpp-omni fork history. Developers who need to push to `tc-mb/llama.cpp-omni:ios-omni` can run `git fetch --unshallow` inside the submodule to lift the shallow restriction.
+> This only pulls the pinned commit (~tens of MB) instead of the full llama.cpp-omni fork history. Developers who need to push to `tc-mb/llama.cpp-omni` can run `git fetch --unshallow` inside the submodule to lift the shallow restriction.
 
 The README is organised in two parts:
 
