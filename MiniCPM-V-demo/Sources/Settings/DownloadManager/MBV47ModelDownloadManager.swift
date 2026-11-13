@@ -412,10 +412,8 @@ final class MBV47ModelDownloadManager: NSObject {
         detailedProgressHandler?(info)
     }
 
-    /// 全部文件到齐后做一次整体校验。
-    ///
-    /// 单文件布局只会剩两项（主 gguf + mmproj），`expertsProblems` 自己会分辨是哪种
-    /// 布局：单文件验 header + 总字节，旧布局验 manifest 逐层字节数。
+    /// 全部文件到齐后做一次整体校验：header 能解析出 `les.moe.layout`，且总字节数
+    /// 不少于清单里的期望值（截断的尾部正好是专家区，只看 header 发现不了）。
     private func finishIfComplete() {
         guard allFilesDownloaded() else {
             completionHandler?(variant.displayedName, false)
@@ -423,9 +421,10 @@ final class MBV47ModelDownloadManager: NSObject {
         }
         if case .moe = variant {
             let root = documentsDir().appendingPathComponent(variant.documentsDirName)
-            let problems = MiniCPMV47Const.expertsProblems(at: root)
+            let modelURL = root.appendingPathComponent(MiniCPMV47Const.modelFileNameResolved())
+            let problems = MiniCPMV47Const.modelProblems(at: modelURL)
             guard problems.isEmpty else {
-                debugLog("-->> V47 experts 校验失败 \(problems.count) 个，判定下载失败")
+                debugLog("-->> V47 模型校验失败 \(problems.count) 项，判定下载失败")
                 completionHandler?(variant.displayedName, false)
                 return
             }
@@ -441,19 +440,16 @@ final class MBV47ModelDownloadManager: NSObject {
             let url = localURL(for: f)
             if fm.fileExists(atPath: url.path) { try? fm.removeItem(at: url) }
         }
-        // 旧布局残留也清掉，避免留个空壳让 resolveArtifacts 误判。
-        // 单文件布局没有 experts/，所以这里对它是 no-op；旧布局的老用户升级时
-        // 才会真正删掉那 12.9 GiB。
+        // 引擎不再支持的旧布局残留：老用户从上一版升级时要清掉，否则白占约 14 GiB
+        //（`-les.gguf` 1.55 GiB + `experts/` 12.89 GiB）。
         if case .moe = variant {
-            let dir = documentsDir()
-                .appendingPathComponent(variant.documentsDirName)
-                .appendingPathComponent(MiniCPMV47Const.expertsDirName)
-            try? fm.removeItem(at: dir)
-            // 上一版的 `-les.gguf` 主文件（专家已剥离的那份），新布局不再使用。
-            let legacy = documentsDir()
-                .appendingPathComponent(variant.documentsDirName)
-                .appendingPathComponent(MiniCPMV47Const.legacyLesModelFileName)
-            try? fm.removeItem(at: legacy)
+            let root = documentsDir().appendingPathComponent(variant.documentsDirName)
+            for name in MiniCPMV47Const.legacyDirectoryNames {
+                try? fm.removeItem(at: root.appendingPathComponent(name))
+            }
+            for name in MiniCPMV47Const.legacyFileNames {
+                try? fm.removeItem(at: root.appendingPathComponent(name))
+            }
         }
         resetDownloadStates()
         reconcileStatusFromDisk()
