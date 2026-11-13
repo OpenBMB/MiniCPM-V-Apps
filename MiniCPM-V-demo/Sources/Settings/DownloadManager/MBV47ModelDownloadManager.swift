@@ -148,7 +148,8 @@ final class MBV47ModelDownloadManager: NSObject {
         let caches = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first ?? ""
         let tmp = NSTemporaryDirectory()
         for f in variant.files {
-            for url in ["\(variant.hfBase)/\(f.remotePath)", "\(variant.msBase)/\(f.remotePath)"] {
+            for base in downloadBases {
+                let url = "\(base)/\(f.remotePath)"
                 guard let digested = url.md5() else { continue }
                 let ext = URL(string: url)?.pathExtension ?? "bin"
                 let name = "\(digested).\(ext)"
@@ -169,6 +170,14 @@ final class MBV47ModelDownloadManager: NSObject {
         }
     }
 
+    /// 该 variant 实际可用的下载源（空地址代表「暂无该镜像」，不能拿去拼 URL）。
+    ///
+    /// 拼 URL 的地方一律走这里，别直接拼 `variant.msBase`：镜像没建时它是空串，
+    /// `"\(空串)/文件名"` 会变成 `"/文件名"`，既不报错也下载不到，只会白白多一次失败。
+    private var downloadBases: [String] {
+        [variant.hfBase, variant.msBase].filter { !$0.isEmpty }
+    }
+
     private func helper(for file: ModelDownloadFile) -> MBModelDownloadHelperV2? {
         if let h = queue.sync(execute: { helpers[file.localName] }) { return h }
         guard let wrapper = wrapper ?? sharedWrapperProbe else { return nil }
@@ -177,7 +186,7 @@ final class MBV47ModelDownloadManager: NSObject {
             modelName: variant.displayedName,
             modelUrl: "\(variant.hfBase)/\(file.remotePath)",
             filename: fullLocalName(file),
-            backupModelUrl: "\(variant.msBase)/\(file.remotePath)"
+            backupModelUrl: variant.msBase.isEmpty ? nil : "\(variant.msBase)/\(file.remotePath)"
         )
         queue.sync { helpers[file.localName] = h }
         return h
@@ -403,19 +412,19 @@ final class MBV47ModelDownloadManager: NSObject {
         detailedProgressHandler?(info)
     }
 
-    /// 全部文件到齐后做一次整体校验（MoE 用 manifest 逐层验字节数）。
+    /// 全部文件到齐后做一次整体校验：header 能解析出 `les.moe.layout`，且总字节数
+    /// 不少于清单里的期望值（截断的尾部正好是专家区，只看 header 发现不了）。
     private func finishIfComplete() {
         guard allFilesDownloaded() else {
             completionHandler?(variant.displayedName, false)
             return
         }
         if case .moe = variant {
-            let expertsURL = documentsDir()
-                .appendingPathComponent(variant.documentsDirName)
-                .appendingPathComponent(MiniCPMV47Const.expertsDirName)
-            let problems = MiniCPMV47Const.expertsProblems(at: expertsURL)
+            let root = documentsDir().appendingPathComponent(variant.documentsDirName)
+            let modelURL = root.appendingPathComponent(MiniCPMV47Const.modelFileNameResolved())
+            let problems = MiniCPMV47Const.modelProblems(at: modelURL)
             guard problems.isEmpty else {
-                debugLog("-->> V47 experts 校验失败 \(problems.count) 个文件，判定下载失败")
+                debugLog("-->> V47 模型校验失败 \(problems.count) 项，判定下载失败")
                 completionHandler?(variant.displayedName, false)
                 return
             }
@@ -431,12 +440,16 @@ final class MBV47ModelDownloadManager: NSObject {
             let url = localURL(for: f)
             if fm.fileExists(atPath: url.path) { try? fm.removeItem(at: url) }
         }
-        // experts 目录本身也清掉，避免留个空壳让 resolveArtifacts 误判
+        // 引擎不再支持的旧布局残留：老用户从上一版升级时要清掉，否则白占约 14 GiB
+        //（`-les.gguf` 1.55 GiB + `experts/` 12.89 GiB）。
         if case .moe = variant {
-            let dir = documentsDir()
-                .appendingPathComponent(variant.documentsDirName)
-                .appendingPathComponent(MiniCPMV47Const.expertsDirName)
-            try? fm.removeItem(at: dir)
+            let root = documentsDir().appendingPathComponent(variant.documentsDirName)
+            for name in MiniCPMV47Const.legacyDirectoryNames {
+                try? fm.removeItem(at: root.appendingPathComponent(name))
+            }
+            for name in MiniCPMV47Const.legacyFileNames {
+                try? fm.removeItem(at: root.appendingPathComponent(name))
+            }
         }
         resetDownloadStates()
         reconcileStatusFromDisk()

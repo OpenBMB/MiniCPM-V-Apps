@@ -4,10 +4,11 @@
 //  internal common/* header, so the framework modulemap stays tiny and
 //  re-syncing llama.cpp upstream stays trivial.
 //
-//  Deep rationale and measurements: Comni/v47/ios-app-引擎桥接说明.md
+//  See docs/les/lookahead-expert-scheduling.md for how the expert window and
+//  prefetch interact.
 
 #import "MBMtmd.h"
-// 内嵌的缓存预热表（top48u / top48w），由 stable_1002/warmup/mk_bridge_header.py 生成。
+// 内嵌的缓存预热表（top48u / top48w），自动生成，见 MBPrewarmTable.h 的说明。
 #import "MBPrewarmTable.h"
 
 #import <Foundation/Foundation.h>
@@ -380,11 +381,13 @@ struct mb_mtmd_context {
 
     bool                text_only = false; // true for text-only models (no mmproj)
 
-    int                 model_version = 46; // 26=V2.6, 40=V4.0, 46=V4.6, 47=V4.7 MoE SSD, 471=V4.7 1B (dense), 5=MiniCPM5
+    int                 model_version = 46; // 26=V2.6, 40=V4.0, 46=V4.6, 47=V4.7 MoE, 471=V4.7 1B (dense), 5=MiniCPM5
 
     bool                enable_thinking = false; // MiniCPM5 / V-4.6; default off
 
-    std::string         experts_path;        // owned copy for llama_model_params
+    // 这个上下文有没有路由专家。只有一种专家布局（模型文件自身的 les.moe.layout），
+    // 所以「是不是 MoE」就是这一个布尔值 —— 没有来源可以选，也没有外部目录要记。
+    bool                moe_enabled = false;
     std::string         pending_image_path;  // ChatML (image-in-user-turn): image is folded into the next user turn
 
 // 选图时先做 ViT 编码，KV 写入留到发送轮。
@@ -473,10 +476,10 @@ static void mb_llama_log(enum ggml_log_level level, const char * text, void * /*
                 g_last_llama_error.pop_back();
             }
         }
-        // 引擎的 MoE 诊断（`[moe-ssd] ...`）只走 stderr，而 iOS 上 app 进程的 stderr
+        // 引擎的 MoE 诊断（`[les] ...`）只走 stderr，而 iOS 上 app 进程的 stderr
         // 既进不了 unified log、也进不了沙盒文件 —— 真机上等于看不到。这里把这一族
         // 单独镜像进 mb_run_log.txt，其余 llama 日志不落盘（否则会被 lv4 的噪声淹没）。
-        if (strstr(text, "[moe-ssd]")) {
+        if (strstr(text, "[les]")) {
             mb_log_raw_line(text);
         }
     }
@@ -498,6 +501,23 @@ static void set_error(mb_mtmd_context * ctx, const std::string & err) {
 
 const char * mb_mtmd_last_init_error(void) {
     return g_last_init_error.c_str();
+}
+
+int32_t mb_moe_experts_geometry(const char * path_model,
+                                int32_t * n_layer,
+                                int32_t * n_expert,
+                                int64_t * bytes_per_slot) {
+    if (!path_model || !*path_model) {
+        return 0;
+    }
+    llama_moe_experts_geometry info{};
+    if (!llama_moe_experts_geometry_from_file(path_model, &info)) {
+        return 0;
+    }
+    if (n_layer)        { *n_layer = info.n_layer; }
+    if (n_expert)       { *n_expert = info.n_expert; }
+    if (bytes_per_slot) { *bytes_per_slot = (int64_t) info.bytes_per_slot; }
+    return 1;
 }
 
 static double now_ms() {
@@ -953,7 +973,7 @@ static const char * chatml_nothink_header() {
     return "<|im_start|>assistant\n<think>\n\n</think>\n\n";
 }
 
-// 36 = Qwen3.6 MoE, 47 = MiniCPM-V 4.7 MoE SSD. Both use the ChatML template
+// 36 = Qwen3.6 MoE, 47 = MiniCPM-V 4.7 MoE. Both use the ChatML template
 // above and both fold the image into the next user turn.
 static inline bool is_chatml_moe(int model_version) {
     return model_version == 36 || model_version == 47;
@@ -961,7 +981,7 @@ static inline bool is_chatml_moe(int model_version) {
 
 // ChatML templates that fold the image INTO the user turn, i.e. the
 // `<__media__>` marker must sit inside `<|im_start|>user\n … <|im_end|>`.
-// 36/47 are the MoE SSD variants; **471 = MiniCPM-V 4.7 1B** — dense Qwen3.5 with
+// 36/47 are the MoE variants; **471 = MiniCPM-V 4.7 1B** — dense Qwen3.5 with
 // the *4.7* chat template, so it needs the same turn structure, but it has no SSD
 // expert window (no experts, no FFN experts), hence it must stay OUT of
 // is_chatml_moe(), which gates the MoE prewarm path.
@@ -992,15 +1012,15 @@ static constexpr int MB_MOE_EXPERT_COUNT = 256;
 // p8d8 (top-8 for both prefill and decode) is the only precision-safe default:
 // the experts and the checkpoint are trained at K=8, and lowering K changes the
 // sampled trajectory. p4d4 is a speed/precision trade that measured ~1.6x on Mac
-// but is NOT free -- see logs/newmodel_v47/quality/ANALYSIS.md (K=4 is the floor;
-// K=2 is unusable on device). Do not lower these without an explicit decision.
+// but is NOT free: K=4 is the floor and K=2 is unusable on device. Do not lower
+// these without an explicit decision.
 static constexpr int MB_MOE_K_PREFILL = 8;
 static constexpr int MB_MOE_K_DECODE  = 8;
 
 // MoE decode trace probe: NOT available on this branch.
 //
 // Upstream's App variant turns on LLAMA_MOE_LAYER_TRACE so the framework prints one
-// `[moe-ssd] layertrace ...` line per layer plus a `layertrace-sum` per token, which is
+// `[les] layertrace ...` line per layer plus a `layertrace-sum` per token, which is
 // what made the install / gpu_gap / tail split readable. That probe was deliberately left
 // out of this llama.cpp-omni tree, so setting those env vars here would be a no-op.
 // Per-step speed is read from the in-app overlay instead (see MTMDWrapper.showPerfSpeedInToolbar).
@@ -1010,7 +1030,7 @@ static constexpr int MB_MOE_K_DECODE  = 8;
 // With p8d8 the runtime K equals hparams' expert_used_count, so apply_moe_k is
 // a no-op for the lifetime of the context.
 static void apply_moe_k(mb_mtmd_context * ctx, int32_t k) {
-    if (!ctx || !ctx->lctx || ctx->experts_path.empty() || k <= 0) {
+    if (!ctx || !ctx->lctx || !ctx->moe_enabled || k <= 0) {
         return;
     }
     const int32_t cur = llama_n_expert_used(ctx->lctx.get());
@@ -1475,6 +1495,7 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.image_max_tokens      = -1;
     p.image_max_slice_nums  = -1;
     p.moe_slot_bank         = 0;
+    p.moe_slot_bank         = 0;
     p.moe_lookahead_prefetch_depth        = 0;
     p.moe_prewarm_level     = 0;       // 0 = 预热关闭（App 会按设置传 8/16/32/48/64/96）
     p.moe_prewarm_table_id  = 0;       // 0 = 默认加权表；1..8 = K=4 集群表
@@ -1485,7 +1506,7 @@ mb_mtmd_params mb_mtmd_params_default(void) {
 // 未指定 n_ubatch 时的默认。iOS 层会按设备覆盖（MBDeviceMemoryProbe）。
 static constexpr int MB_DEFAULT_N_UBATCH = 512;
 
-// 自适应 ubatch：选能一次装下整个 prompt 的最小档（仅 MoE-SSD 路径，未钉 -moeUbatch 时）。
+// 自适应 ubatch：选能一次装下整个 prompt 的最小档（仅 LES 路径，未钉 -moeUbatch 时）。
 // 核心原则「不切段」—— 切段要重读整批专家；但小 ub 的短上下文 decode 快 ~22%。
 // 阶梯取 {128,256,512,1024,2048}。详见文档 §9。
 static constexpr int MB_MOE_UB_LADDER[] = { 128, 256, 512, 1024, 2048 };
@@ -1786,7 +1807,6 @@ static bool moe_adaptive_ubatch(mb_mtmd_context * ctx, bool has_image, int n_tok
 
 mb_mtmd_context * mb_mtmd_init(const char * model_path,
                                const char * mmproj_path,
-                               const char * moe_experts_path,
                                const char * draft_model_path,
                                const mb_mtmd_params * params_in) {
     if (!model_path || !*model_path || !mmproj_path || !*mmproj_path) {
@@ -1808,8 +1828,7 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     // std::make_unique is C++14; some Xcode build configs in this project use
     // gnu++0x (= C++11) for ObjC++ targets, so we stick with the C++11 form.
     std::unique_ptr<mb_mtmd_context> ctx(new mb_mtmd_context());
-    if (moe_experts_path && *moe_experts_path) {
-        ctx->experts_path = moe_experts_path;
+    if (params.moe_slot_bank > 0) {
         ctx->model_version = 47;
     }
 
@@ -1835,8 +1854,10 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     mparams.n_gpu_layers = params.use_gpu ? 999 : 0;
     // No `load_mtp` on this branch: llama_model_params has no such field here.
     int slot_bank = 0;
-    if (!ctx->experts_path.empty()) {
-        mparams.moe_experts_path = ctx->experts_path.c_str();
+    if (ctx->model_version == 47) {
+        // 只有一种专家布局：模型文件自身声明的 les.moe.layout。所以这里只需要告诉我
+        // 们「要几个常驻 slot」，不需要选来源。
+        ctx->moe_enabled = true;
         slot_bank = params.moe_slot_bank > 0 ? params.moe_slot_bank : 8;
         mparams.moe_slot_bank    = slot_bank;
         // 默认用 mmap，见 moe_use_mmap_launch_arg 的说明（剥离 gguf 后已可在端上工作）。
@@ -1855,8 +1876,8 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
             params.moe_decode_window, "before model load");
         ctx->moe_k_prefill = MB_MOE_K_PREFILL;
         ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] MoE SSD experts=%s slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                mparams.moe_experts_path, slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
+        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
                 ctx->moe_k_prefill, ctx->moe_k_decode);
     }
 
@@ -1869,7 +1890,6 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
 // 内存预算：n_ubatch 主导 GPU compute buffer（n_ubatch=1024 约 970 MiB）。
 // n_batch 保持 2048（只影响 dispatch 次数）。flash_attn=AUTO。
 // MoE：单 graph 的 unique experts ≤ min(ub*n_used, n_expert)，必须装进共享 bank。
-// 完整分解见 Comni/v47/ios-app-调优参数与实测.md §1。
     ctx->ubatch_adaptive = !moe_ubatch_pinned();
     int requested_ubatch = ctx->ubatch_adaptive
         ? MB_MOE_UB_LADDER[0]
@@ -1883,7 +1903,7 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     }
     // 窗口是否启用决定 ubatch 的硬上限（见 MB_MOE_UB_WINDOW_MAX）。
     ctx->moe_window_active = params.moe_decode_window > 0;
-    if (!ctx->experts_path.empty()) {
+    if (ctx->moe_enabled) {
         // 调用方没给 ubatch 时，旧行为是保守取 1（只要 8 个 slot 就够）。
         // 自适应模式下不能这么做 —— 那会把 SMALL(128) 打回 1，自适应的意义就没了；
         // 下面的 bank 夹取已经保证「窗口装得下」。
@@ -1912,7 +1932,7 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     fprintf(stderr, "[MBMtmd] llama_context: n_ctx=%u n_batch=%u n_ubatch=%u n_rs_seq=%u flash_attn=AUTO\n",
             cparams.n_ctx, cparams.n_batch, cparams.n_ubatch, cparams.n_rs_seq);
 
-    if (!ctx->experts_path.empty()) {
+    if (ctx->moe_enabled) {
         apply_lookahead_prefetch_env(params.moe_lookahead_prefetch_depth, "before llama_context");
     }
     try {
@@ -2012,7 +2032,7 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         vparams.use_gpu              = params.mmproj_use_gpu;
         vparams.print_timings        = false;
         vparams.n_threads            = params.n_threads;
-        vparams.warmup                = ctx->experts_path.empty() ? params.warmup : false;
+        vparams.warmup                = !ctx->moe_enabled ? params.warmup : false;
         vparams.image_max_tokens      = params.image_max_tokens;
         vparams.image_max_slice_nums  = params.image_max_slice_nums;
 
@@ -2031,7 +2051,6 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
 }
 
 mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
-                                         const char * moe_experts_path,
                                          const char * draft_model_path,
                                          const mb_mtmd_params * params_in) {
     if (!model_path || !*model_path) {
@@ -2075,10 +2094,11 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
     // 纯文本也要能挂 experts：35B-A3B 全量专家 ~20GB，8GB 手机只能走 SSD 流式。
     // 基准用这条路径（不需要 mmproj / 视觉塔），同时省下 ~1GB 常驻。
     int slot_bank = 0;
-    if (moe_experts_path && *moe_experts_path) {
-        ctx->experts_path        = moe_experts_path;
-        mparams.moe_experts_path = ctx->experts_path.c_str();
-        slot_bank = params.moe_slot_bank > 0 ? params.moe_slot_bank : 8;
+    if (params.moe_slot_bank > 0) {
+        ctx->model_version = 47;
+        ctx->moe_enabled   = true;
+        slot_bank = params.moe_slot_bank;
+        mparams.moe_slot_bank = slot_bank;
         mparams.moe_slot_bank    = slot_bank;
         mparams.use_mmap         = moe_use_mmap_launch_arg();  // 默认关，见上面说明
         apply_lookahead_prefetch_env(params.moe_lookahead_prefetch_depth, "before model load (text-only)");
@@ -2097,8 +2117,8 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
             params.moe_decode_window, "before model load (text-only)");
         ctx->moe_k_prefill = MB_MOE_K_PREFILL;
         ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] text-only MoE SSD experts=%s slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                mparams.moe_experts_path, slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
+        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
                 ctx->moe_k_prefill, ctx->moe_k_decode);
     }
 

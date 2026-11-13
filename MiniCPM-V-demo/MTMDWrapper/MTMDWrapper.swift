@@ -42,7 +42,7 @@ public class MTMDWrapper: ObservableObject {
     /// 生成长度随模型输出变化，t/s 会混入"生成了多长"这个无关变量。
     public var decodeTokenLimit: Int = 0
 
-    /// 26=V2.6, 40=V4.0, 46/460/461=V4.6, 47=V4.7 MoE SSD, 5=MiniCPM5
+    /// 26=V2.6, 40=V4.0, 46/460/461=V4.6, 47=V4.7 MoE, 5=MiniCPM5
     public private(set) var modelVersion: Int = 0
 
     private var supportsThinkingPrefix: Bool {
@@ -143,12 +143,7 @@ public class MTMDWrapper: ObservableObject {
                     params.mmprojPath.withCString { mmprojCStr in
                         draftPath.withCString { draftCStr in
                             let draftPtr: UnsafePointer<CChar>? = draftPath.isEmpty ? nil : draftCStr
-                            if params.moeExpertsPath.isEmpty {
-                                return mb_mtmd_init(modelCStr, mmprojCStr, nil, draftPtr, &cParams)
-                            }
-                            return params.moeExpertsPath.withCString { expertsCStr in
-                                mb_mtmd_init(modelCStr, mmprojCStr, expertsCStr, draftPtr, &cParams)
-                            }
+                            return mb_mtmd_init(modelCStr, mmprojCStr, draftPtr, &cParams)
                         }
                     }
                 }
@@ -188,19 +183,12 @@ public class MTMDWrapper: ObservableObject {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 var cParams = params.toCParams()
-                let expertsPath = params.moeExpertsPath
                 let draftPath   = params.draftModelPath
-                let ctx = params.modelPath.withCString { modelCStr in
-                    // 空 experts → 传 nullptr（纯 dense 文本模型）。
-                    // 非空 → 走 MoE SSD 流式，35B-A3B 全量专家在 8GB 手机上放不下。
+                let ctx: OpaquePointer? = params.modelPath.withCString { modelCStr -> OpaquePointer? in
                     // 空 draft → 传 nullptr（投机解码关闭）。
-                    expertsPath.withCString { expertsCStr in
-                        draftPath.withCString { draftCStr in
-                            mb_mtmd_init_text_only(modelCStr,
-                                                   expertsPath.isEmpty ? nil : expertsCStr,
-                                                   draftPath.isEmpty ? nil : draftCStr,
-                                                   &cParams)
-                        }
+                    draftPath.withCString { draftCStr -> OpaquePointer? in
+                        let draftPtr: UnsafePointer<CChar>? = draftPath.isEmpty ? nil : draftCStr
+                        return mb_mtmd_init_text_only(modelCStr, draftPtr, &cParams)
                     }
                 }
 

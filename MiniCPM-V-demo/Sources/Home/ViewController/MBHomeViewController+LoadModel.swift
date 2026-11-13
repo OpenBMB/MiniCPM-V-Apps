@@ -54,7 +54,7 @@ extension MBHomeViewController {
                 setvbuf(stdout, nil, _IONBF, 0)
                 self.benchLog("[MOEBENCH] args=\(ProcessInfo.processInfo.arguments.dropFirst().joined(separator: " "))")
                 let v47dir = documentsDirectory.appendingPathComponent(MiniCPMV47Const.documentsDirName)
-                for name in [MiniCPMV47Const.modelFileName, MiniCPMV47Const.mmprojFileName, MiniCPMV47Const.expertsDirName] {
+                for name in [MiniCPMV47Const.modelFileName, MiniCPMV47Const.mmprojFileName] {
                     let p = v47dir.appendingPathComponent(name)
                     self.benchLog("[MOEBENCH] exists(\(name))=\(FileManager.default.fileExists(atPath: p.path))")
                 }
@@ -237,48 +237,25 @@ extension MBHomeViewController {
                     self.benchLog("[MOEBENCH] checkpoint=experts-problems-before")
                     // 纯 I/O 诊断：不需要 mmproj、不需要走 model/bench 参数。
                     // 直接对 experts 做顺序读 vs 随机读，把 GPU/线程/引擎这些变量排除掉。
-                    // 放在 artifacts 绑定之后，因为它需要 expertsURL。
+                    // 放在 artifacts 绑定之后，因为它需要 modelURL。
                     if ProcessInfo.processInfo.arguments.contains("-moeBenchIODiag") {
                         setvbuf(stdout, nil, _IONBF, 0)
-                        // 从 manifest 读真实参数，保证测的就是引擎遇到的那个模式
-                        var stride = 2039808, perExpert = 2039808, experts = 256
-                        let mURL = artifacts.expertsURL.appendingPathComponent("manifest.json")
-                        if let d = try? Data(contentsOf: mURL),
-                           let root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
-                           let es = root["entries"] as? [[String: Any]] {
-                            let routed = es.filter {
-                                ["ffn_gate_exps", "ffn_up_exps", "ffn_down_exps"]
-                                    .contains($0["tensor_family"] as? String ?? "")
-                            }
-                            if let e = routed.first {
-                                stride = (e["expert_stride"] as? NSNumber)?.intValue ?? stride
-                                // 一个 expert 的**完整打包长度**就是 stride（gate|up|down 连续排列）。
-                                // 上一版误用了「第一个 family 的结束偏移」，只测到一个 family，
-                                // 导致工作集偏小、被 page cache 吃掉。
-                                perExpert = stride
-                            }
-                            if let mc = (root["model"] as? [String: Any])?["expert_count"] as? NSNumber {
-                                experts = mc.intValue
-                            }
-                        }
-                        MoeIoDiag.run(expertsDir: artifacts.expertsURL,
-                                      stride: stride, perExpert: perExpert,
-                                      experts: experts, picks: 4200)   // 与一次 prefill 的 miss 数同量级
+                        MoeIoDiag.run(modelURL: artifacts.modelURL)
                         print("[IODIAG] done")
                         fflush(stdout)
                         exit(0)
                     }
-                    let expertsProblems = MiniCPMV47Const.expertsProblems(at: artifacts.expertsURL)
-                    self.benchLog("[MOEBENCH] checkpoint=experts-problems-after n=\(expertsProblems.count)")
-                    if !expertsProblems.isEmpty {
-                        print("MiniCPMV47Const: experts 校验失败 \(expertsProblems.count) 个文件：\n"
-                              + expertsProblems.map { "  - " + $0.text }.joined(separator: "\n"))
+                    let modelProblems = MiniCPMV47Const.modelProblems(at: artifacts.modelURL)
+                    self.benchLog("[MOEBENCH] checkpoint=model-problems-after n=\(modelProblems.count)")
+                    if !modelProblems.isEmpty {
+                        print("MiniCPMV47Const: 模型校验失败 \(modelProblems.count) 个：\n"
+                              + modelProblems.map { "  - " + $0.text }.joined(separator: "\n"))
                         DispatchQueue.main.async {
                             hud.mode = .text
                             hud.label.numberOfLines = 0
-                            hud.label.text = "experts 不完整（\(expertsProblems.count) 个文件）：\n"
-                                + expertsProblems.prefix(3).map { $0.text }.joined(separator: "\n")
-                                + "\n请重新安装模型文件（experts 需与主模型同批）"
+                            hud.label.text = "模型文件不完整：\n"
+                                + modelProblems.prefix(3).map { $0.text }.joined(separator: "\n")
+                                + "\n请重新下载模型"
                             hud.hide(animated: true, afterDelay: 10)
                         }
                         return
@@ -294,14 +271,13 @@ extension MBHomeViewController {
                         let draftPath = MiniCPMV47Const.resolveDraftModelPath(in: documentsDirectory)
                         // 窗口在下面分配，先落 pending，成功后才清。
                         MiniCPMV47Const.markCacheWindowLoadStarted()
-                        let winSlots = MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL)
+                        let winSlots = MiniCPMV47Const.decodeWindow(modelDir: artifacts.modelURL.deletingLastPathComponent())
                             + MiniCPMV47Const.lookaheadPrefetchDepth()
                         await self.mtmdWrapperExample?.initializeTextOnly(
                             modelPath: artifacts.modelURL.path,
                             nCtx: MiniCPMV47Const.defaultNCtx,
-                            moeExpertsPath: artifacts.expertsURL.path,
                             moeSlotBank: MiniCPMV47Const.slotBank(),
-                            moeDecodeWindow: MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL),
+                            moeDecodeWindow: MiniCPMV47Const.decodeWindow(modelDir: artifacts.modelURL.deletingLastPathComponent()),
                             nUbatchOverride: MiniCPMV47Const.nUbatch(),
                             draftModelPath: draftPath,
                             // 必须用 effective*：请求值可能超过窗口容量（见该函数说明）。
@@ -354,16 +330,15 @@ extension MBHomeViewController {
                     let draftPath = MiniCPMV47Const.resolveDraftModelPath(in: documentsDirectory)
                     // 同上：窗口在下面分配，先落 pending。
                     MiniCPMV47Const.markCacheWindowLoadStarted()
-                    let winSlots = MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL)
+                    let winSlots = MiniCPMV47Const.decodeWindow(modelDir: artifacts.modelURL.deletingLastPathComponent())
                         + MiniCPMV47Const.lookaheadPrefetchDepth()
                     await self.mtmdWrapperExample?.initialize(
                         modelPath: artifacts.modelURL.path,
                         mmprojPath: artifacts.mmprojURL.path,
                         nCtx: MiniCPMV47Const.defaultNCtx,
-                        moeExpertsPath: artifacts.expertsURL.path,
                         moeSlotBank: MiniCPMV47Const.slotBank(),
                         // 多模态路径也要传窗口（默认 0 = 窗口关闭，会拿不到按层缓存收益）。
-                        moeDecodeWindow: MiniCPMV47Const.decodeWindow(expertsURL: artifacts.expertsURL),
+                        moeDecodeWindow: MiniCPMV47Const.decodeWindow(modelDir: artifacts.modelURL.deletingLastPathComponent()),
                         nUbatchOverride: MiniCPMV47Const.nUbatch(),
                         imageMaxTokensOverride: MiniCPMV47Const.defaultImageMaxTokens,
                         warmup: false,
@@ -610,7 +585,7 @@ enum MoeIoDiag {
     ///
     /// 工作集必须接近真实 prefill（~8 GB），否则会被 page cache 吃掉 ——
     /// 上一版只读一个 498 MB 文件，测出 6 GB/s 的「缓存速率」而非闪存速率。
-    static func scattered(_ urls: [URL], stride: Int, perExpert: Int,
+    static func scattered(_ urls: [URL], base: Int, stride: Int, perExpert: Int,
                           experts: Int, picks: Int) -> (mib: Double, ms: Double) {
         guard !urls.isEmpty else { return (0, 0) }
         var buf = [UInt8](repeating: 0, count: perExpert)
@@ -630,7 +605,7 @@ enum MoeIoDiag {
         for i in 0..<picks {
             // 轮转所有层文件；层 0/1 是 498MB、其余 432MB，混合更接近真实分布
             let fd = live[i % live.count].element
-            let off = next(experts) * stride
+            let off = base + next(experts) * stride
             total += preadFull(fd, off, perExpert, &buf)
         }
         let ms = Date().timeIntervalSince(t0) * 1000
@@ -646,7 +621,7 @@ enum MoeIoDiag {
     ///
     /// 算法上完全复刻真实模式：从随机起点读 r 个**连续**专家（它们在文件里
     /// 就是连续的一段，长度 r * stride），轮转所有 layer 文件以撑大工作集。
-    static func granularitySweep(_ urls: [URL], stride: Int, experts: Int,
+    static func granularitySweep(_ urls: [URL], base: Int, stride: Int, experts: Int,
                                  totalExperts: Int, runs rValues: [Int]) {
         func log(_ s: String) { print(s); fflush(stdout) }
         let fds = urls.map { openRead($0) }
@@ -673,7 +648,7 @@ enum MoeIoDiag {
                 let run = min(r, remaining)
                 let maxStart = experts - run
                 if maxStart <= 0 { break }
-                let off = next(maxStart) * stride
+                let off = base + next(maxStart) * stride
                 total += preadFull(live[fi % live.count], off, run * stride, &buf)
                 reads += 1
                 fi += 1
@@ -687,32 +662,43 @@ enum MoeIoDiag {
         }
     }
 
-    static func run(expertsDir: URL, stride: Int, perExpert: Int, experts: Int, picks: Int) {
+    /// 全部参数都从模型 header 推导，不再需要外部目录。
+    static func run(modelURL: URL, picks: Int = 4200) {
         func log(_ s: String) { print(s); fflush(stdout) }
 
-        let all = (0..<40).compactMap { i -> URL? in
-            let u = expertsDir.appendingPathComponent(String(format: "layer_%03d.bin", i))
-            return FileManager.default.fileExists(atPath: u.path) ? u : nil
+        var nLayer: Int32 = 0
+        var nExpert: Int32 = 0
+        var bytesPerSlotTotal: Int64 = 0
+        guard mb_moe_experts_geometry(modelURL.path, &nLayer, &nExpert, &bytesPerSlotTotal) != 0,
+              nLayer > 0, nExpert > 0, bytesPerSlotTotal > 0 else {
+            log("[IODIAG] 模型没有路由专家（les.moe.layout 读不出来），跳过")
+            return
         }
-        log("[IODIAG] experts=\(expertsDir.path) files=\(all.count)")
-        log("[IODIAG] stride=\(stride) perExpert=\(perExpert) experts=\(experts) picks=\(picks)")
-        log("[IODIAG] 预期随机读总量 = \(picks * perExpert / 1048576) MiB（prefill 实测 7657 MiB）")
-        guard all.count >= 8 else { log("[IODIAG] layer 文件不足"); return }
 
-        // 顺序读只用前 4 个文件；随机读用**全部** 40 个 —— 两者不重叠，互不污染 cache。
-        let seqUrls = Array(all.prefix(4))
-        let (sMib, sMs) = sequential(seqUrls, chunkBytes: 4 << 20)
-        log(String(format: "[IODIAG] sequential   %8.1f MiB %8.1f ms %7.1f MiB/s  (冷, %d 文件顺序)",
-                   sMib, sMs, sMs > 0 ? sMib / (sMs / 1000.0) : 0, seqUrls.count))
+        let stride = Int(bytesPerSlotTotal) / Int(nLayer)
+        let perExpert = stride
+        let experts = Int(nExpert)
+        let fileSize = ((try? FileManager.default.attributesOfItem(atPath: modelURL.path)[.size]) as? Int64).map(Int.init) ?? 0
+        // 专家区在文件尾部，且已页对齐：起点 = 文件大小 - 专家总字节。
+        let expertBase = fileSize - Int(bytesPerSlotTotal) * experts
+        guard stride > 0, expertBase > 0 else { log("[IODIAG] 几何异常，跳过"); return }
 
-        let (rMib, rMs) = scattered(all, stride: stride, perExpert: perExpert,
-                                    experts: experts, picks: picks)
-        log(String(format: "[IODIAG] scattered    %8.1f MiB %8.1f ms %7.1f MiB/s  (冷, 40 文件轮转)",
+        log("[IODIAG] model=\(modelURL.path)")
+        log("[IODIAG] layers=\(nLayer) experts=\(experts) stride=\(stride) base=\(expertBase) file=\(fileSize)")
+        log("[IODIAG] 预期随机读总量 = \(picks * perExpert / 1048576) MiB")
+
+        // 顺序读：常驻前缀（专家区之前），冷读。
+        let (sMib, sMs) = sequential([modelURL], chunkBytes: 4 << 20)
+        log(String(format: "[IODIAG] sequential   %8.1f MiB %8.1f ms %7.1f MiB/s  (冷, 整文件顺序)",
+                   sMib, sMs, sMs > 0 ? sMib / (sMs / 1000.0) : 0))
+
+        let (rMib, rMs) = scattered([modelURL], base: expertBase, stride: stride,
+                                    perExpert: perExpert, experts: experts, picks: picks)
+        log(String(format: "[IODIAG] scattered    %8.1f MiB %8.1f ms %7.1f MiB/s  (冷, 专家区内随机)",
                    rMib, rMs, rMs > 0 ? rMib / (rMs / 1000.0) : 0))
 
-        // 读粒度扫描：回答「合并相邻专家的读能拿到多少」
         log("[IODIAG] --- 读粒度扫描（r 个相邻专家一次读完）---")
-        granularitySweep(all, stride: stride, experts: experts,
+        granularitySweep([modelURL], base: expertBase, stride: stride, experts: experts,
                          totalExperts: picks, runs: [1, 2, 4, 8, 16])
     }
 }

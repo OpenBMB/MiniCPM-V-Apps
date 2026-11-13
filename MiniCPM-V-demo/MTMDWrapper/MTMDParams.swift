@@ -78,14 +78,14 @@ import llama
     /// 64 或 256 的小值，避免在多 slice 大图 prefill 时被 jetsam 杀掉。
     public let imageMaxTokens: Int
 
-    /// MoE SSD experts 目录（含 manifest.json + 分层 expert bin）。空字符串 = 关闭。
-    public let moeExpertsPath: String
-
-    /// 每层常驻内存的 expert 槽位数。experts 开启时必须 > 0。
+    /// 每层常驻内存的 expert 槽位数。0 = 该模型没有路由专家。
+    ///
+    /// 专家布局由模型文件自身声明（`les.moe.layout`），所以这里不需要选来源；
+    /// 这个值就是全部开关。
     public let moeSlotBank: Int
 
     /// 每层 decode 缓存的窗口宽度（slot 数）。0 = 不启用按层窗口（走共享 bank）。
-    /// 由 app 按可用内存与 experts 每 slot 字节算出，见 MiniCPMV47Const.decodeWindow()。
+    /// 由 app 按可用内存与每 slot 字节算出，见 MiniCPMV47Const.decodeWindow()。
     public let moeDecodeWindow: Int
 
     /// 跳层专家预读数（look-ahead expert prefetch）。0 = 关闭；1..16 = 预读数量。仅 experts 路径有效。
@@ -103,7 +103,7 @@ import llama
     public let moePrewarmTableId: Int
 
     /// DSpark 草稿模型路径（GGUF）。空字符串 = 关闭投机解码。
-    /// 与 `moeExpertsPath` 同一约定：作为 init 的独立参数传，由 MTMDWrapper 用 `withCString` 包住。
+    /// 作为 init 的独立参数传，由 MTMDWrapper 用 `withCString` 包住。
     public let draftModelPath: String
 
     /// DSpark 每轮草稿数 `n_max`。0 = 关闭投机（默认）；1..16 = 草稿块宽度。
@@ -144,7 +144,6 @@ import llama
         nUbatch: Int = 0,
         imageMaxSliceNums: Int = -1,
         imageMaxTokens: Int = -1,
-        moeExpertsPath: String = "",
         moeSlotBank: Int = 0,
         moeDecodeWindow: Int = 0,
         moeLookaheadPrefetchDepth: Int = 0,
@@ -165,7 +164,6 @@ import llama
         self.nUbatch = nUbatch
         self.imageMaxSliceNums = imageMaxSliceNums
         self.imageMaxTokens = imageMaxTokens
-        self.moeExpertsPath = moeExpertsPath
         self.moeSlotBank = moeSlotBank
         self.moeDecodeWindow = moeDecodeWindow
         self.moeLookaheadPrefetchDepth = moeLookaheadPrefetchDepth

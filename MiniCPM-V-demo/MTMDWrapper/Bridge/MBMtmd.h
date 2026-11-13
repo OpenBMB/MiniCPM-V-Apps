@@ -64,7 +64,7 @@ typedef struct mb_mtmd_params {
     bool  warmup;
     int   image_max_tokens;
     int   image_max_slice_nums;  // llava-uhd slice cap (minicpmv / lfm2); -1 = model default
-    int   moe_slot_bank;         // in-RAM expert slots; used together with moe_experts_path
+    int   moe_slot_bank;         // in-RAM expert slots; 0 = the model has no routed experts
     int   moe_decode_window;     // per-layer decode cache width in slots; 0 = app decides (see MTMDParams)
     int   moe_lookahead_prefetch_depth;        // 0 = off; 1..16 = predicted experts to prefetch
     // Expert-window cache prewarm (LLAMA_MOE_PREWARM). 0 = off; else the table size
@@ -76,9 +76,9 @@ typedef struct mb_mtmd_params {
     //   0 = default weighted table, size = moe_prewarm_level
     //   1..4 = K4-total cluster tables    (k4t1..k4t4, 96 rows each)
     //   5..8 = K4-bottleneck cluster tables (k4b1..k4b4, 96 rows each)
-    // Cluster tables come from clustering the 12 35BA3B showcase cases
-    // (see stable_1002/warmup/run12/clusters/); they are truncated to the window
-    // like the default tables, so a small `c` still works.
+    // Cluster tables come from clustering the showcase cases of this model; they
+    // are truncated to the window like the default tables, so a small `c` still
+    // works.
     int   moe_prewarm_table_id;
     // DSpark speculative decoding: draft tokens per round (`n_max`, clamped 0..16).
     //   0     = off (default; byte-for-byte the legacy one-token-per-call loop)
@@ -106,16 +106,17 @@ mb_mtmd_params mb_mtmd_params_default(void);
 //
 // `model_path` and `mmproj_path` MUST point to existing GGUF files; both are
 // owned by the caller and may be freed as soon as `mb_mtmd_init` returns.
-// `moe_experts_path` may be NULL or empty for a dense model.
 // `draft_model_path` is the optional DSpark draft GGUF; NULL / empty disables speculative
 // decoding (and it only takes effect together with `params->spec_draft_n_max > 0`).
 // `params` may be NULL, in which case `mb_mtmd_params_default()` is used.
+//
+// Routed MoE experts, when the model has them, come from the model file itself; the only
+// thing the caller sets is `params->moe_slot_bank` (0 = a model without routed experts).
 //
 // Returns NULL on failure. Call `mb_mtmd_last_init_error()` for the reason
 // (ctx is destroyed on failure so `mb_mtmd_get_last_error` cannot be used).
 mb_mtmd_context * mb_mtmd_init(const char * model_path,
                                const char * mmproj_path,
-                               const char * moe_experts_path,
                                const char * draft_model_path,
                                const mb_mtmd_params * params);
 
@@ -123,16 +124,29 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
 // Lifetime: valid until the next init call.
 const char * mb_mtmd_last_init_error(void);
 
+// Read the routed-expert geometry out of a gguf header **without loading the model**.
+//
+// This is what lets the app size the decode-window budget before committing
+// ~15 GiB of weights: the budget depends on bytes-per-expert-slot, which for a
+// single-file LES model lives in the file's own `les.moe.layout` rather
+// than in a separate manifest.json.
+//
+// Returns 1 and fills the out-params for an LES single-file model, 0 otherwise
+// (plain dense model, legacy layout, unreadable file). Out-params are left
+// untouched on failure; any of them may be NULL.
+int32_t mb_moe_experts_geometry(const char * path_model,
+                               int32_t * n_layer,
+                               int32_t * n_expert,
+                               int64_t * bytes_per_slot);
+
 // Construct a text-only context (no mmproj / vision module).
 //
 // Used for pure-text models like MiniCPM 5 that do not have a vision encoder.
 // `model_path` MUST point to an existing GGUF file.
-// `moe_experts_path` may be NULL or empty for a plain dense text model; when set, routed
-// experts stream from the experts (same contract as mb_mtmd_init).
+// Routed experts follow the same contract as `mb_mtmd_init`.
 // `draft_model_path` behaves exactly as in mb_mtmd_init (NULL / empty = off).
 // Returns NULL on failure.
 mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
-                                         const char * moe_experts_path,
                                          const char * draft_model_path,
                                          const mb_mtmd_params * params);
 
@@ -198,7 +212,7 @@ typedef struct mb_mtmd_perf {
     double  prefill_ms;
     double  decode_ms;
     double  prep_ms;           // send-turn prep (mmproj reload / image decode / tokenize); outside prefill_ms
-    int32_t moe_k_prefill;     // 0 = not MoE SSD
+    int32_t moe_k_prefill;     // 0 = no routed experts
     int32_t moe_k_decode;
     int32_t image_tokens;      // 0 = no eager image this turn
     double  image_encode_ms;   // measured outside prefill_ms
@@ -243,7 +257,7 @@ bool mb_mtmd_clean_kv_cache(mb_mtmd_context * ctx);
 //   46  = MiniCPM-V 4.6 (thinking disabled via empty block)
 //    5  = MiniCPM 5 text-only (thinking gated by mb_mtmd_set_enable_thinking)
 //   36  = Qwen3.6 (thinking always off: empty <think> block; template default is ON)
-//   47  = MiniCPM-V 4.7 MoE SSD (same ChatML template as 36: thinking always off)
+//   47  = MiniCPM-V 4.7 MoE (same ChatML template as 36: thinking always off)
 //
 // Must be called after mb_mtmd_init / mb_mtmd_init_text_only.
 // If never called, defaults to 46 (legacy behaviour).

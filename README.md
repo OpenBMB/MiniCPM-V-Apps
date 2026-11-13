@@ -20,7 +20,7 @@ This repository contains three on-device demos for MiniCPM-V (multimodal LLM) ru
 * `MiniCPM-V-demo-Android/` — Android demo (Gradle / Kotlin)
 * `MiniCPM-V-demo-HarmonyOS/` — HarmonyOS NEXT demo (DevEco Studio / ArkTS)
 
-All three demos share the same `llama.cpp-omni` submodule (branch `ios-omni`) at the repo root.
+All three demos share the same `llama.cpp-omni` submodule (tracking `master`) at the repo root.
 
 > **NOTE**: This project bundles `llama.cpp` as a git submodule. The upstream fork `tc-mb/llama.cpp-omni` carries a dozen unrelated branches and a full clone weighs ~350 MB, so `shallow = true` is set in `.gitmodules` by default. The recommended **shallow + single-branch** clone is:
 >
@@ -37,7 +37,7 @@ All three demos share the same `llama.cpp-omni` submodule (branch `ios-omni`) at
 > git submodule update --init --recursive --depth 1 --single-branch
 > ```
 >
-> This only pulls a single commit of the `ios-omni` branch (~tens of MB) instead of the full llama.cpp-omni fork history. Developers who need to push to `tc-mb/llama.cpp-omni:ios-omni` can run `git fetch --unshallow` inside the submodule to lift the shallow restriction.
+> This only pulls the pinned commit (~tens of MB) instead of the full llama.cpp-omni fork history. Developers who need to push to `tc-mb/llama.cpp-omni` can run `git fetch --unshallow` inside the submodule to lift the shallow restriction.
 
 The README is organised in two parts:
 
@@ -209,7 +209,7 @@ Notes:
 * MiniCPM5-1B and MiniCPM5-2B are text-only models and do not need an `mmproj` file.
 * VoxCPM2 requires two GGUF files (BaseLM + Acoustic) and does not use an `mmproj` either — it is a pure TTS model.
 * MiniCPM-OCR 1.0 is a three-file model: the LLM, the 4x vision projector, **and** a separate PP-DocLayoutV3 ONNX layout detector. It is wired up on **iOS, Android and HarmonyOS**. Its `mmproj` is a 4x projector and is *not* interchangeable with the chat models' `mmproj`.
-* MiniCPM-V 4.7 35B-A3B uses a **Q3_K** expert quant (`mix_q3gud_im`) rather than Q4, and its routed experts are split out of the main `.gguf` into a separate `experts/` directory. The **~16.6 GB** above is the main file + all 40 expert shards + `mmproj`; plan for ~17 GB of free storage. Because the experts are streamed from SSD on demand rather than held in RAM, this variant also needs **fast internal storage** — see §2.4.
+* MiniCPM-V 4.7 35B-A3B uses a **Q3_K** expert quant (`mix_q3gud_im`) rather than Q4, and its routed experts are repacked expert-major inside the same `.gguf`. The **~16.6 GB** above is that one file (14.4 GB) + `mmproj` (1.1 GB); plan for ~17 GB of free storage. Because the experts are streamed from SSD on demand rather than held in RAM, this variant also needs **fast internal storage** — see §2.4.
 * All three demos default to a context window of 4K tokens. Larger contexts will increase the KV-cache footprint roughly linearly, so on a borderline device you may need to lower it.
 * On Android / HarmonyOS, devices with 8 GB+ RAM are strongly recommended for V 2.6. On iOS, V 2.6 has been validated on iPhone 15 Pro / 16 series and recent iPads with M-series chips; older 6 GB devices may swap heavily.
 * MiniCPM-V 4.7 35B-A3B has been validated on a 12 GB iPhone 17 Pro Max. On devices with less RAM the app automatically falls back to a **smaller expert cache**, which works but is considerably slower.
@@ -246,8 +246,9 @@ Download the language model file (e.g., `MiniCPM-V-4_6-Q4_K_M.gguf`) and the vis
 MiniCPM-V 4.7 ships in two sizes:
 
 * **MiniCPM-V 4.7 35B-A3B** — MoE (35B total / 3B active). Uses **MoE-SSD**: the routed experts are
-  stripped out of the main `.gguf` into a separate `experts/` directory and streamed from SSD on
-  demand, which is what makes a 35B-class model runnable on a phone.
+  repacked expert-major (each expert's `gate|up|down` byte-contiguous) and kept **inside** the main
+  `.gguf`, streamed from SSD on demand. One file, which is what makes a 35B-class model runnable on
+  a phone.
 * **MiniCPM-V 4.7 1B** — dense, small enough to keep everything resident.
 
 #### Where to get the GGUF files
@@ -260,32 +261,35 @@ There are **two** sets, for two different purposes:
   * HuggingFace: [openbmb/MiniCPM-V-4.7-35B-A3B-gguf](https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B-gguf) · [openbmb/MiniCPM-V-4.7-1B-gguf](https://huggingface.co/openbmb/MiniCPM-V-4.7-1B-gguf)
   * ModelScope: [openbmb/MiniCPM-V-4.7-35B-A3B-gguf](https://modelscope.cn/models/openbmb/MiniCPM-V-4.7-35B-A3B-gguf) · [openbmb/MiniCPM-V-4.7-1B-gguf](https://modelscope.cn/models/openbmb/MiniCPM-V-4.7-1B-gguf)
 
-* **On-device split — for this demo, on a phone.** The `-les` main file plus its `experts/` directory
-  (and the 1B revision this demo is actually built and tested against).
+* **On-device repack — for this demo, on a phone.** The `LCO-` prefixed file (and the 1B revision
+  this demo is actually built and tested against).
 
-  * HuggingFace: [tc-mb/MiniCPM-V-Apps-gguf](https://huggingface.co/tc-mb/MiniCPM-V-Apps-gguf)
-  * ModelScope: [zerg13/MiniCPM-V-Apps-gguf](https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf)
+  * HuggingFace: [LComni/LCO-MiniCPM-V-4.7-35B-A3B-gguf](https://huggingface.co/LComni/LCO-MiniCPM-V-4.7-35B-A3B-gguf)
 
-> **Why a separate split exists.** The official repos do **not** carry a `-les` variant, and this demo
-> cannot load their 35B `mix_q3gud_im.gguf`: that file keeps the routed experts inline, so a phone would
-> need the whole ~15.5 GB as a single Metal buffer (mmap) or as resident memory (no-mmap) — either way
-> the OS kills it. Stripping the experts into `experts/` lets them be paged in from SSD on demand, which
-> is what makes 35B-class inference possible on a phone at all. The split is therefore an artifact made
-> *for* this demo, not a general-purpose release. 1B needs no split; it is hosted above only because
-> that is the revision this demo was validated against.
+> **Why the `LCO-` prefix.** `LCO` = **l**lama.**c**pp-**o**mni. The prefix marks a file laid out by
+> *this* engine, which standard `llama.cpp` cannot read: the routed experts are repacked expert-major
+> and described by an `les.moe.descriptor` metadata entry that only this engine understands. The rest
+> of the name follows the official convention unchanged (`MiniCPM-V-4_7-35B-A3B-mix_q3gud_im`), so a
+> `LCO-` file and its official counterpart are trivially paired.
+>
+> **Why a repack is needed at all.** The expert streaming path reads one expert's `gate|up|down` with a
+> single `preadv`, so those three tensors must be byte-contiguous per expert. The official GGUFs store
+> them family-major (`ffn_up_exps` starts 256 experts after `ffn_gate_exps`), which would need three
+> separate reads per expert — or, with the tensors left as-is, an mmap over the whole ~15.5 GB. The
+> `LCO-` repack is a **byte move only**: every resident tensor and every expert byte is identical to
+> the official file (verified 653/653), so it cannot change model output.
 
 Files are grouped into per-model sub-directories:
 
 | Variant | Files | On-device location |
 | --- | --- | --- |
-| **35B-A3B** | `MiniCPM-V-4.7-35B-A3B/MiniCPM-V-4_7-35B-A3B-mix_q3gud_im-les.gguf`<br>`MiniCPM-V-4.7-35B-A3B/mmproj-model-f16.gguf`<br>`MiniCPM-V-4.7-35B-A3B/experts/` (40 shards + `manifest.json`) | `Documents/MiniCPMV47/` |
+| **35B-A3B** | `MiniCPM-V-4.7-35B-A3B/LCO-MiniCPM-V-4_7-35B-A3B-mix_q3gud_im.gguf`<br>`MiniCPM-V-4.7-35B-A3B/mmproj-model-f16.gguf` | `Documents/MiniCPMV47/` |
 | **1B** | `MiniCPM-V-4.7-1B/MiniCPM-V-4_7-1B-Q4_K_M.gguf`<br>`MiniCPM-V-4.7-1B/mmproj-model-f16.gguf` | `Documents/MiniCPMV47_1B/` |
 
-> **The `experts/` directory must stay together with its main file.** The `-les` variant carries no
-> routed-expert weights of its own, so a mismatched pair fails the on-disk consistency check and the
-> model refuses to load. The reliable way to get this right is to download **inside the app**
-> (Settings → tap the model → **Download**), which fetches every file and verifies the shard sizes
-> for you.
+> **The `LCO-` file carries its own experts.** There is no separate `experts/` directory any more:
+> layout metadata lives in the file's `les.moe.descriptor` entry, and the app reads it to size the
+> expert cache before loading. Downloading **inside the app** (Settings → tap the model →
+> **Download**) fetches both files and verifies the model's size against the descriptor.
 
 ### 2.5 MiniCPM5-1B GGUF Files (text-only)
 

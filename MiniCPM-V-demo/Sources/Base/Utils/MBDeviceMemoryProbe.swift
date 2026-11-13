@@ -3,7 +3,8 @@
 //  MiniCPM-V-demo
 //
 //  Per-device n_ubatch / n_ctx tier selection.
-//  Tier rationale and the measured table: Comni/v47/ios-app-调优参数与实测.md §1-2
+//  The tiers are sized so that the GPU compute buffer and the KV cache fit the
+//  memory the OS gives this app on each device class.
 //
 
 import Foundation

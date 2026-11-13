@@ -31,7 +31,7 @@ enum CurrentUsingModelTypeV2 {
     case V5TextModel
     /// MiniCPM5-2B 纯文本模型
     case V526TextModel
-    /// V4.7 MoE SSD：文本塔 qwen35moe + 视觉塔 minicpmv4_6
+    /// V4.7 MoE：文本塔 qwen35moe + 视觉塔 minicpmv4_6
     case V47MoE
     /// V4.7 **1B**：dense 文本塔 qwen35 + 视觉塔 minicpmv4_7（无 experts、无 MoE）
     case V47_1B
@@ -165,7 +165,6 @@ public class MTMDWrapperExample: ObservableObject {
                            mmprojPath: String? = nil,
                            coremlPath: String? = nil,
                            nCtx: Int? = nil,
-                           moeExpertsPath: String? = nil,
                            moeSlotBank: Int = 0,
                            moeDecodeWindow: Int = 0,
                            nUbatchOverride: Int? = nil,
@@ -201,8 +200,9 @@ public class MTMDWrapperExample: ObservableObject {
             let tier        = MBDeviceMemoryProbe.currentTier
             let nUbatch     = nUbatchOverride ?? tier.recommendedUbatch
             let imgMaxTok   = imageMaxTokensOverride ?? tier.recommendedImageMaxTokens
-            let experts     = moeExpertsPath ?? ""
-            let doWarmup    = warmup ?? experts.isEmpty
+            // 路由专家内联在模型文件里，所以「有没有专家」就是 slot bank 是否非零。
+            let moeEnabled  = moeSlotBank > 0
+            let doWarmup    = warmup ?? !moeEnabled
 
             // iOS Simulator 的 MTLSimDevice 在 mmproj 那种 1+ GiB 的 buffer 上
             // 直接 _xpc_api_misuse → SIGTRAP（参见 MBDeviceMemoryProbe.isSimulator
@@ -228,12 +228,11 @@ public class MTMDWrapperExample: ObservableObject {
                         nUbatch: nUbatch,
                         imageMaxSliceNums: sliceCap,
                         imageMaxTokens: imgMaxTok,
-                        moeExpertsPath: experts,
                         moeSlotBank: moeSlotBank,
                         moeDecodeWindow: moeDecodeWindow,
-                        moeLookaheadPrefetchDepth: experts.isEmpty ? 0 : MiniCPMV47Const.lookaheadPrefetchDepth(),
-                        moePrewarmLevel: experts.isEmpty ? 0 : MiniCPMV47Const.prewarmLevel(),
-                        moePrewarmTableId: experts.isEmpty ? 0 : MiniCPMV47Const.prewarmTableId(),
+                        moeLookaheadPrefetchDepth: moeEnabled ? MiniCPMV47Const.lookaheadPrefetchDepth() : 0,
+                        moePrewarmLevel: moeEnabled ? MiniCPMV47Const.prewarmLevel() : 0,
+                        moePrewarmTableId: moeEnabled ? MiniCPMV47Const.prewarmTableId() : 0,
                         draftModelPath: draftPath,
                         specDraftNMax: specNMax
                     )
@@ -247,12 +246,11 @@ public class MTMDWrapperExample: ObservableObject {
                         nUbatch: nUbatch,
                         imageMaxSliceNums: sliceCap,
                         imageMaxTokens: imgMaxTok,
-                        moeExpertsPath: experts,
                         moeSlotBank: moeSlotBank,
                         moeDecodeWindow: moeDecodeWindow,
-                        moeLookaheadPrefetchDepth: experts.isEmpty ? 0 : MiniCPMV47Const.lookaheadPrefetchDepth(),
-                        moePrewarmLevel: experts.isEmpty ? 0 : MiniCPMV47Const.prewarmLevel(),
-                        moePrewarmTableId: experts.isEmpty ? 0 : MiniCPMV47Const.prewarmTableId(),
+                        moeLookaheadPrefetchDepth: moeEnabled ? MiniCPMV47Const.lookaheadPrefetchDepth() : 0,
+                        moePrewarmLevel: moeEnabled ? MiniCPMV47Const.prewarmLevel() : 0,
+                        moePrewarmTableId: moeEnabled ? MiniCPMV47Const.prewarmTableId() : 0,
                         draftModelPath: draftPath,
                         specDraftNMax: specNMax
                     )
@@ -260,7 +258,7 @@ public class MTMDWrapperExample: ObservableObject {
             }()
             self.params = params
             try await mtmdWrapper.initialize(with: params)
-            print("MTMDWrapperExample: n_ctx = \(params.nCtx), n_ubatch = \(nUbatch) (tier=\(tier.displayName)), useGPU = \(useGPU), image_max_tokens = \(imgMaxTok), experts = \(experts), slot_bank = \(moeSlotBank), decode_window = \(params.moeDecodeWindow), lookahead_prefetch_depth = \(params.moeLookaheadPrefetchDepth), specDraftNMax = \(params.specDraftNMax), draft = \(draftPath.isEmpty ? "(none)" : draftPath)")
+            print("MTMDWrapperExample: n_ctx = \(params.nCtx), n_ubatch = \(nUbatch) (tier=\(tier.displayName)), useGPU = \(useGPU), image_max_tokens = \(imgMaxTok), slot_bank = \(moeSlotBank), decode_window = \(params.moeDecodeWindow), lookahead_prefetch_depth = \(params.moeLookaheadPrefetchDepth), specDraftNMax = \(params.specDraftNMax), draft = \(draftPath.isEmpty ? "(none)" : draftPath)")
             self.multiModelLoadingSuccess = true
         } catch {
             errorMessage = error.localizedDescription
@@ -274,7 +272,7 @@ public class MTMDWrapperExample: ObservableObject {
     ///   - modelPath: 模型路径
     ///   - nCtx: 上下文长度
     public func initializeTextOnly(modelPath: String, nCtx: Int? = nil,
-                                  moeExpertsPath: String = "", moeSlotBank: Int = 0,
+                                  moeSlotBank: Int = 0,
                                   moeDecodeWindow: Int = 0,
                                   nUbatchOverride: Int? = nil,
                                   draftModelPath: String = "",
@@ -297,16 +295,14 @@ public class MTMDWrapperExample: ObservableObject {
                 nUbatch: nUbatch,
                 imageMaxSliceNums: -1,
                 imageMaxTokens: -1,
-                moeExpertsPath: moeExpertsPath,
                 moeSlotBank: moeSlotBank,
                 moeDecodeWindow: moeDecodeWindow,
                 // 缓存与预读**不是互斥**的：每层窗口分两块 —— 缓存区 c 个（跨 token
                 // LRU）+ 预读暂存区 K 个（每步重填，不淘汰缓存）。覆盖是并集。
                 // 见 llama-moe-slot.cpp 的 install_prefetch_into_window。
-                moeLookaheadPrefetchDepth: moeExpertsPath.isEmpty
-                    ? 0 : MiniCPMV47Const.lookaheadPrefetchDepth(),
-                moePrewarmLevel: moeExpertsPath.isEmpty ? 0 : MiniCPMV47Const.prewarmLevel(),
-                moePrewarmTableId: moeExpertsPath.isEmpty ? 0 : MiniCPMV47Const.prewarmTableId(),
+                moeLookaheadPrefetchDepth: moeSlotBank > 0 ? MiniCPMV47Const.lookaheadPrefetchDepth() : 0,
+                moePrewarmLevel: moeSlotBank > 0 ? MiniCPMV47Const.prewarmLevel() : 0,
+                moePrewarmTableId: moeSlotBank > 0 ? MiniCPMV47Const.prewarmTableId() : 0,
                 draftModelPath: draftModelPath,
                 specDraftNMax: draftModelPath.isEmpty ? 0 : specDraftNMax
             )

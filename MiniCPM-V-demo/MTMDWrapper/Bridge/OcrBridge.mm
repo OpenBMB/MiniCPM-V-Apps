@@ -53,7 +53,7 @@ void * ocr_init(const char * model_path, const char * mmproj_path, const ocr_par
         p.warmup       = params_in->warmup;
     }
 
-    auto * ctx = mb_mtmd_init(model_path, mmproj_path, nullptr, nullptr, &p);
+    auto * ctx = mb_mtmd_init(model_path, mmproj_path, nullptr, &p);
     if (ctx) {
         // OCR 1.0 的文本塔是 Qwen3.5，图要放进 user 轮，助手头是空的 <think>。
         // 471 正是这条 ChatML 路径，而且不会走 MoE 预热。46 会把图拼在 user 轮外面。
