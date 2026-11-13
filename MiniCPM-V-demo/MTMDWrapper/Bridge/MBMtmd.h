@@ -80,9 +80,9 @@ typedef struct mb_mtmd_params {
     //   0 = default weighted table, size = moe_prewarm_level
     //   1..4 = K4-total cluster tables    (k4t1..k4t4, 96 rows each)
     //   5..8 = K4-bottleneck cluster tables (k4b1..k4b4, 96 rows each)
-    // Cluster tables come from clustering the 12 35BA3B showcase cases
-    // (see stable_1002/warmup/run12/clusters/); they are truncated to the window
-    // like the default tables, so a small `c` still works.
+    // Cluster tables come from clustering the showcase cases of this model; they
+    // are truncated to the window like the default tables, so a small `c` still
+    // works.
     int   moe_prewarm_table_id;
     // DSpark speculative decoding: draft tokens per round (`n_max`, clamped 0..16).
     //   0     = off (default; byte-for-byte the legacy one-token-per-call loop)

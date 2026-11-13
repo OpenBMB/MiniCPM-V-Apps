@@ -4,10 +4,11 @@
 //  internal common/* header, so the framework modulemap stays tiny and
 //  re-syncing llama.cpp upstream stays trivial.
 //
-//  Deep rationale and measurements: Comni/v47/ios-app-引擎桥接说明.md
+//  See docs/les/lookahead-expert-scheduling.md for how the expert window and
+//  prefetch interact.
 
 #import "MBMtmd.h"
-// 内嵌的缓存预热表（top48u / top48w），由 stable_1002/warmup/mk_bridge_header.py 生成。
+// 内嵌的缓存预热表（top48u / top48w），自动生成，见 MBPrewarmTable.h 的说明。
 #import "MBPrewarmTable.h"
 
 #import <Foundation/Foundation.h>
@@ -1013,8 +1014,8 @@ static constexpr int MB_MOE_EXPERT_COUNT = 256;
 // p8d8 (top-8 for both prefill and decode) is the only precision-safe default:
 // the experts and the checkpoint are trained at K=8, and lowering K changes the
 // sampled trajectory. p4d4 is a speed/precision trade that measured ~1.6x on Mac
-// but is NOT free -- see logs/newmodel_v47/quality/ANALYSIS.md (K=4 is the floor;
-// K=2 is unusable on device). Do not lower these without an explicit decision.
+// but is NOT free: K=4 is the floor and K=2 is unusable on device. Do not lower
+// these without an explicit decision.
 static constexpr int MB_MOE_K_PREFILL = 8;
 static constexpr int MB_MOE_K_DECODE  = 8;
 
@@ -1899,7 +1900,6 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
 // 内存预算：n_ubatch 主导 GPU compute buffer（n_ubatch=1024 约 970 MiB）。
 // n_batch 保持 2048（只影响 dispatch 次数）。flash_attn=AUTO。
 // MoE：单 graph 的 unique experts ≤ min(ub*n_used, n_expert)，必须装进共享 bank。
-// 完整分解见 Comni/v47/ios-app-调优参数与实测.md §1。
     ctx->ubatch_adaptive = !moe_ubatch_pinned();
     int requested_ubatch = ctx->ubatch_adaptive
         ? MB_MOE_UB_LADDER[0]

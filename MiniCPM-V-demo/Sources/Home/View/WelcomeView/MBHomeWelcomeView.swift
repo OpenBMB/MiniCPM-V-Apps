@@ -9,9 +9,9 @@ import Foundation
 import UIKit
 import SnapKit
 
-/// DSpark 基准测试用例，来源 `logs/DSPARK_CASES_09-27.md`（5 个高加速比 case）。
-/// payload 固定为英文原文、不走本地化，必须与 Mac 端 `cases_mtbench_more/*.txt` 逐字节
-/// 一致（Swift 多行字面量会吃掉闭合前的换行，故显式补 `\n`）；只有菜单短名本地化。
+/// DSpark 基准测试用例（高加速比 case）。
+/// payload 固定为英文原文、不走本地化，必须与基准脚本里的 case 文本逐字节一致
+/// （Swift 多行字面量会吃掉闭合前的换行，故显式补 `\n`）；只有菜单短名本地化。
 enum MBDSparkBenchPrompt: CaseIterable {
     case inclusionExclusion
     case parking

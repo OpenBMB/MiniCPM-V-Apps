@@ -423,9 +423,9 @@ struct MiniCPMV47Const {
 
     /// 启动参数覆盖，供内存/预填实验用：`-moeUbatch N`。
     ///
-    /// 小 ub 对短 prompt 的 decode 有 ~22% 收益，但 prompt 超过 ub 会切段、
-    /// 每段重读专家，长/带图场景必须显式传 1024。实测表见
-    /// Comni/v47/ios-app-调优参数与实测.md §1。与 -moeSlotBank 同理由：必须命令行注入。
+    /// 小 ub 对短 prompt 的 decode 有约两成收益，但 prompt 超过 ub 会切段、
+    /// 每段重读专家，长/带图场景必须显式传 1024。与 -moeSlotBank 同理由：
+    /// 必须命令行注入。
     static func nUbatch() -> Int {
         if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-moeUbatch"),
            i + 1 < ProcessInfo.processInfo.arguments.count,
@@ -625,7 +625,6 @@ struct MiniCPMV47Const {
     /// 窗口分「缓存区 c（跨 token LRU）」与「预读区 K（下层预测重填）」。
     /// 同样内存下缓存 slot 更值钱，但 K 不能归零（少量预读补冷启动），K=4 是甜点。
     /// 预算 = 余量 - reserve，(c+K) = 预算 / (每 slot 字节 × 层数)。
-    /// 实测表与 reserve 分解见 Comni/v47/ios-app-调优参数与实测.md §6。
     static func maxCFromBudget(bytesPerSlot: Int64, kSlots: Int) -> Int {
         let available = Int64(MBDeviceMemoryProbe.availableProcessBytes)
         let footprint = Int64(MBDeviceMemoryProbe.footprintBytes)
@@ -1016,7 +1015,6 @@ struct MiniCPMV47Const {
     /// 窗口之外必须留下的常驻量（MiB），可用 `-moeMemReserveMiB <n>` 覆盖。
     /// 实测分解：baseline 0.24 + mmproj 1.21 + MTL0 compute 0.54 + recurrent 0.06
     /// + KV/其它 0.15 ⇒ 约 2.20 GiB。mmap 下非专家权重不计；nommap 额外扣 1.6 GiB。
-    /// 见 Comni/v47/ios-app-调优参数与实测.md §6.3。
     static func decodeWindowMemReserveMiB() -> Int {
         if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-moeMemReserveMiB"),
            i + 1 < ProcessInfo.processInfo.arguments.count,
@@ -1127,7 +1125,7 @@ struct MiniCPMV47Const {
 
     /// p8d8：prefill / decode 都用 top-8，与 checkpoint / experts 的训练 K 一致。
     /// K=4（p4d4）在 Mac 上约快 1.6x，但会改变采样轨迹，**不是精度无损**；
-    /// 真机 K=2 完全不可用（见 logs/newmodel_v47/quality/ANALYSIS.md）。
+    /// 真机 K=2 完全不可用。
     ///
     /// ⚠️ 这两个常量目前**没有任何使用者**：真正生效的默认值在
     /// `MTMDWrapper/Bridge/MBMtmd.mm` 的 `MB_MOE_K_PREFILL` / `MB_MOE_K_DECODE`。
