@@ -356,14 +356,14 @@ struct MiniCPMV47Const {
     static let mmprojFileName = "mmproj-model-f16.gguf"
     static let expertsDirName = "experts"
 
-    /// 公网托管（下载源，两个源竞速）。
+    /// 公网托管（下载源）。
     ///
-    /// HF 走**专用仓库** `tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf`：仓库本身就是这个模型，
-    /// 所以文件平铺在根目录（`<hfBase>/<文件名>`），不再套一层 `MiniCPM-V-4.7-35B-A3B/`。
+    /// HF 走**独立组织** `LComni` 下的专用仓库：仓库本身就是这个模型，所以文件平铺在
+    /// 根目录（`<hfBase>/<文件名>`），不套模型子目录。
     ///
-    /// `msBase` 留空 = 暂无国内镜像，备用源会被跳过（见 MBModelDownloadHelperV2 对空串的处理）。
+    /// `msBase` 留空 = 暂无国内镜像，备用源会被跳过（见 `downloadBases`）。
     /// 镜像建好后把地址填回来即可，`downloadFiles` 不用动。
-    static let hfBase = "https://huggingface.co/tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf/resolve/main"
+    static let hfBase = "https://huggingface.co/LComni/LCO-MiniCPM-V-4.7-35B-A3B-gguf/resolve/main"
     static let msBase = ""
 
     /// 需要下载的文件：主模型 + mmproj。

@@ -264,7 +264,7 @@ There are **two** sets, for two different purposes:
 * **On-device repack — for this demo, on a phone.** The `LCO-` prefixed file (and the 1B revision
   this demo is actually built and tested against).
 
-  * HuggingFace: [tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf](https://huggingface.co/tc-mb/LCO-MiniCPM-V-4.7-35B-A3B-gguf)
+  * HuggingFace: [LComni/LCO-MiniCPM-V-4.7-35B-A3B-gguf](https://huggingface.co/LComni/LCO-MiniCPM-V-4.7-35B-A3B-gguf)
 
 > **Why the `LCO-` prefix.** `LCO` = **l**lama.**c**pp-**o**mni. The prefix marks a file laid out by
 > *this* engine, which standard `llama.cpp` cannot read: the routed experts are repacked expert-major
