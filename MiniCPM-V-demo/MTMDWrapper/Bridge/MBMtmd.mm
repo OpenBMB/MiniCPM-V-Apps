@@ -1362,9 +1362,6 @@ static int eval_prefill(mb_mtmd_context * ctx,
                         const mtmd_input_chunks * chunks,
                         bool logits_last,
                         llama_pos * new_n_past) {
-    // 自适应 ubatch：这里拿不到总 token 数（由 mtmd 内部按 chunk 切），
-    // 所以只按「本轮是否带图」判断 —— 图像通常上千 token，必须走大 ub。
-    //
     // 重建前先放掉视觉塔（本轮图已 eager 编码时）：下面图像 chunk 走
     // mtmd_helper_decode_image_chunk()，只把预编码的嵌入注进 KV、不做 CLIP 前向，
     // 而重建 llama_context 的 compute buffer 会和常驻 mmproj 叠加到 OOM 点。
@@ -1374,7 +1371,11 @@ static int eval_prefill(mb_mtmd_context * ctx,
         // 这里多为 no-op；保留作为兜底（例如非 chatml 路径或没走选图）。
         mb_release_vision(ctx, "before ubatch rebuild (eager embedding cached)");
     }
-    moe_adaptive_ubatch(ctx, eager_ok, /*n_tokens=*/0);
+    int n_prefill_tokens = 0;
+    for (size_t i = 0; i < mtmd_input_chunks_size(chunks); ++i) {
+        n_prefill_tokens += (int) mtmd_input_chunk_get_n_tokens(mtmd_input_chunks_get(chunks, i));
+    }
+    moe_adaptive_ubatch(ctx, eager_ok, n_prefill_tokens);
 
     // 注意：这里**不再**预热。预热挪到了选图之后（mb_mtmd_prewarm_after_image）、
     // 发送之前，那样那笔读盘落在用户打字的空闲期，既不阻塞首 token，也不进
