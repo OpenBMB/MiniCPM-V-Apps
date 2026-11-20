@@ -455,6 +455,12 @@ public class MTMDWrapper: ObservableObject {
 
     /// MiniCPM5 / V-4.6 thinking toggle. Stored locally so it survives a later init,
     /// and pushed to the C bridge when a context exists.
+    /// 上一次 prefill 或生成是否因为上下文窗口写满而停止（见 mb_mtmd_context_full）。
+    public var isContextFull: Bool {
+        guard let ctx = context else { return false }
+        return mb_mtmd_context_full(ctx)
+    }
+
     public func setEnableThinking(_ enable: Bool) {
         enableThinking = enable
         guard let ctx = context else { return }

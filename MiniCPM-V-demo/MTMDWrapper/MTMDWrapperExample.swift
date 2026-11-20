@@ -31,6 +31,8 @@ enum CurrentUsingModelTypeV2 {
     case V5TextModel
     /// MiniCPM5-2B 纯文本模型
     case V526TextModel
+    /// MiniCPM5-15B-A2.5B MoE：纯文本，LES 单文件，专家走 slot；可选单独的 predictor
+    case V5_15B_A2_5B
     /// V4.7 MoE：文本塔 qwen35moe + 视觉塔 minicpmv4_6
     case V47MoE
     /// V4.7 **1B**：dense 文本塔 qwen35 + 视觉塔 minicpmv4_7（无 experts、无 MoE）
@@ -43,7 +45,7 @@ enum CurrentUsingModelTypeV2 {
     /// 是否为纯文本模型（无 mmproj / 视觉模块）
     var isTextOnly: Bool {
         switch self {
-        case .V5TextModel, .V526TextModel: return true
+        case .V5TextModel, .V526TextModel, .V5_15B_A2_5B: return true
         default: return false
         }
     }
@@ -276,7 +278,9 @@ public class MTMDWrapperExample: ObservableObject {
                                   moeDecodeWindow: Int = 0,
                                   nUbatchOverride: Int? = nil,
                                   draftModelPath: String = "",
-                                  specDraftNMax: Int = 0) async {
+                                  specDraftNMax: Int = 0,
+                                  lookaheadDepthOverride: Int? = nil,
+                                  sampling: (temperature: Float, topP: Float, minP: Float, repeatPenalty: Float)? = nil) async {
         do {
             let tier        = MBDeviceMemoryProbe.currentTier
             // n_ubatch 直接决定 MTL0 compute buffer（实测 V47 在 ub=1024 时 1104 MiB）。
@@ -288,7 +292,10 @@ public class MTMDWrapperExample: ObservableObject {
                 modelPath: modelPath,
                 mmprojPath: "",
                 nCtx: nCtx ?? 4096,
-                temperature: 0.6,
+                temperature: sampling?.temperature ?? 0.6,
+                topP: sampling?.topP ?? 0,
+                minP: sampling?.minP ?? 0,
+                repeatPenalty: sampling?.repeatPenalty ?? 1.0,
                 useGPU: useGPU,
                 mmprojUseGPU: false,
                 warmup: false,
@@ -300,7 +307,7 @@ public class MTMDWrapperExample: ObservableObject {
                 // 缓存与预读**不是互斥**的：每层窗口分两块 —— 缓存区 c 个（跨 token
                 // LRU）+ 预读暂存区 K 个（每步重填，不淘汰缓存）。覆盖是并集。
                 // 见 llama-moe-slot.cpp 的 install_prefetch_into_window。
-                moeLookaheadPrefetchDepth: moeSlotBank > 0 ? MiniCPMV47Const.lookaheadPrefetchDepth() : 0,
+                moeLookaheadPrefetchDepth: moeSlotBank > 0 ? (lookaheadDepthOverride ?? MiniCPMV47Const.lookaheadPrefetchDepth()) : 0,
                 moePrewarmLevel: moeSlotBank > 0 ? MiniCPMV47Const.prewarmLevel() : 0,
                 moePrewarmTableId: moeSlotBank > 0 ? MiniCPMV47Const.prewarmTableId() : 0,
                 draftModelPath: draftModelPath,
@@ -368,6 +375,9 @@ public class MTMDWrapperExample: ObservableObject {
         }
     }
     
+    /// 上一次 prefill 或生成是否因为上下文窗口写满而停止。
+    public var isContextFull: Bool { mtmdWrapper.isContextFull }
+
     /// 在后台线程中添加文本
     /// - Parameter text: 文本内容
     public func addTextInBackground(_ text: String, role: String = "user") async -> Bool {
@@ -393,7 +403,7 @@ public class MTMDWrapperExample: ObservableObject {
             
             // 添加调试信息
             print("开始生成 - 当前状态: \(mtmdWrapper.generationState)")
-            if currentUsingModelType == .V47MoE {
+            if currentUsingModelType == .V47MoE || currentUsingModelType == .V5_15B_A2_5B {
                 mtmdWrapper.setMoeLookaheadPrefetchDepth(effectiveLookaheadPrefetchDepth)
             }
             try await mtmdWrapper.startGeneration()
@@ -415,6 +425,9 @@ public class MTMDWrapperExample: ObservableObject {
         // `-moeNoPrefetch` 供实验单独关掉预读。
         if ProcessInfo.processInfo.arguments.contains("-moeNoPrefetch") {
             return 0
+        }
+        if currentUsingModelType == .V5_15B_A2_5B {
+            return MiniCPM5_15B_A2_5BConst.lookaheadDepth()
         }
         return MiniCPMV47Const.lookaheadPrefetchDepth()
     }
@@ -463,6 +476,7 @@ public class MTMDWrapperExample: ObservableObject {
         case .V46MultiModel:  version = 46
         case .V5TextModel:    version = 5
         case .V526TextModel:  version = 5
+        case .V5_15B_A2_5B:      version = 5
         case .V47MoE:         version = 47
         case .V47_1B:         version = 471
         case .Voxcpm2Model:  version = 0  // VoxCPM2 handled by TtsEngine, not MTMD

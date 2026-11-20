@@ -359,6 +359,8 @@ struct mb_mtmd_context {
     // 当前 lctx 是用什么 ub / n_ctx 建的（自适应切换时用来判断要不要重建）。
     int32_t             n_ubatch_cur = 0;
     int32_t             n_ctx_cur    = 0;
+    // The last prefill did not fit in n_ctx (see mb_mtmd_context_full).
+    bool                ctx_full     = false;
     // 启动参数显式给了 ub 时不启用自适应（基准要能钉死配置）。
     bool                ubatch_adaptive = false;
 
@@ -1566,6 +1568,9 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.n_ubatch              = 0;       // 0 = pick MB_DEFAULT_N_UBATCH below
     p.n_threads             = 4;
     p.temperature           = 0.7f;     // 0 = 贪心（可用 MB_TEMP=0 覆盖）
+    p.min_p                 = 0.0f;
+    p.repeat_penalty        = 1.0f;
+    p.repeat_last_n         = 64;
     p.use_gpu               = true;
     p.mmproj_use_gpu        = true;
     p.warmup                = true;
@@ -2259,7 +2264,9 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
     }
 
     // ---- Build sampler chain ----
-    // MiniCPM 5: temperature=0.6, top_p=0.95 (from generation_config.json)
+    // 纯文本路径：penalties → top_p → min_p → temp → dist（llama.cpp 的默认顺序）。
+    // 调用方不传时：temperature 0.6、top_p 0.95（MiniCPM5-1B / 2B 的 generation_config），
+    // min_p / 重复惩罚关闭。
     {
         llama_sampler_chain_params scp = llama_sampler_chain_default_params();
         scp.no_perf = false;
@@ -2278,12 +2285,20 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         uint32_t seed = LLAMA_DEFAULT_SEED;
         if (const char * e = getenv("MB_TEMP")) { temp = (float) atof(e); }
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
+        const float top_p = (params.top_p > 0.0f && params.top_p < 1.0f) ? params.top_p : 0.95f;
         if (temp > 0.0f) {
-            llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(0.95f, /*min_keep=*/1));
+            if (params.repeat_penalty > 0.0f && params.repeat_penalty != 1.0f) {
+                llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_penalties(
+                    std::max(0, params.repeat_last_n), params.repeat_penalty, /*freq=*/0.0f, /*present=*/0.0f));
+            }
+            llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(top_p, /*min_keep=*/1));
+            if (params.min_p > 0.0f) {
+                llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_min_p(params.min_p, /*min_keep=*/1));
+            }
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
-            mb_logf("sampler (text-only): temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
-                    temp, (unsigned) seed,
+            mb_logf("sampler (text-only): temp=%.3f top_p=%.3f min_p=%.3f repeat_penalty=%.3f (last %d) dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
+                    temp, top_p, params.min_p, params.repeat_penalty, params.repeat_last_n, (unsigned) seed,
                     getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)",
                     getenv("MB_SEED") ? getenv("MB_SEED") : "(unset)");
         } else {
@@ -2342,6 +2357,10 @@ bool mb_mtmd_clean_kv_cache(mb_mtmd_context * ctx) {
 
 void mb_mtmd_set_model_version(mb_mtmd_context * ctx, int version) {
     if (ctx) ctx->model_version = version;
+}
+
+bool mb_mtmd_context_full(mb_mtmd_context * ctx) {
+    return ctx && (ctx->ctx_full || (ctx->n_ctx_cur > 0 && ctx->n_past >= ctx->n_ctx_cur));
 }
 
 void mb_mtmd_set_enable_thinking(mb_mtmd_context * ctx, bool enable) {
@@ -2751,6 +2770,16 @@ int mb_mtmd_prefill_text(mb_mtmd_context * ctx, const char * text_in, const char
         // 长度与本轮无关，所以不再切换。
         moe_adaptive_ubatch(ctx, /*has_image=*/false, static_cast<int>(tokens.size()));
 
+        // The prompt has to fit in what is left of the context window; otherwise llama_decode
+        // fails part-way. Refuse it up front so the caller can tell the user to start a new chat.
+        ctx->ctx_full = false;
+        if (ctx->n_ctx_cur > 0 && ctx->n_past + (int32_t) tokens.size() >= ctx->n_ctx_cur) {
+            ctx->ctx_full = true;
+            set_error(ctx, "prefill_text: context full (n_past=" + std::to_string(ctx->n_past)
+                + " + " + std::to_string(tokens.size()) + " >= n_ctx=" + std::to_string(ctx->n_ctx_cur) + ")");
+            return -1;
+        }
+
         // Prefill tokens in batches
         const llama_pos start_n_past = ctx->n_past;
         const int32_t batch_size = ctx->n_batch;
@@ -3157,6 +3186,11 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     // 未开启投机时走下面逐 token 的原路径，行为一字未改（回归安全网）。
     if (ctx->spec_enabled && ctx->spec) {
         return mb_mtmd_loop_spec(ctx, t0);
+    }
+
+    // The context window is full: stop here (no decode slot left), see mb_mtmd_context_full.
+    if (ctx->n_ctx_cur > 0 && ctx->n_past >= ctx->n_ctx_cur) {
+        return result;
     }
 
     // 1) Sample one token from the most recent decode's logits.

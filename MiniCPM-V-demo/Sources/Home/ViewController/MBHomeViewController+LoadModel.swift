@@ -105,6 +105,12 @@ extension MBHomeViewController {
                 // MiniCPM5-2B 纯文本模型（无 mmproj）
                 modelURL = documentsDirectory.appendingPathComponent(MiniCPMModelConst.modelv526_FileName)
                 selectedModelType = .V526TextModel
+            } else if lastSelectedModelString == MiniCPM5_15B_A2_5BConst.userDefaultsKey {
+                // MiniCPM5-15B-A2.5B MoE：LES 单文件（专家内联），纯文本
+                if let artifacts = MiniCPM5_15B_A2_5BConst.resolveArtifacts(in: documentsDirectory) {
+                    modelURL = artifacts.modelURL
+                    selectedModelType = .V5_15B_A2_5B
+                }
             }
             
             self.benchLog("[MOEBENCH] checkpoint=model-resolved type=\(selectedModelType) model=\(modelURL?.lastPathComponent ?? "nil") mmproj=\(mmprojURL?.lastPathComponent ?? "nil")")
@@ -150,6 +156,20 @@ extension MBHomeViewController {
                 }
             }
 
+            // MiniCPM5-15B-A2.5B：同 V4.7 的加载前校验（header + 大小），不完整的文件不交给引擎。
+            if selectedModelType == .V5_15B_A2_5B {
+                let problems = MiniCPM5_15B_A2_5BConst.modelProblems(at: modelURL)
+                if !problems.isEmpty {
+                    print("MiniCPM5_15B_A2_5BConst: 模型校验失败：" + problems.map { $0.text }.joined(separator: "; "))
+                    DispatchQueue.main.async {
+                        hud.mode = .text
+                        hud.label.text = L.Home.initFailedDownloadFirst.loc
+                        hud.hide(animated: true, afterDelay: 3)
+                    }
+                    return
+                }
+            }
+
             DispatchQueue.main.async {
                 self.currentUsingModelType = selectedModelType
                 self.mtmdWrapperExample?.currentUsingModelType = selectedModelType
@@ -160,6 +180,47 @@ extension MBHomeViewController {
                 if selectedModelType == .V5TextModel || selectedModelType == .V526TextModel {
                     // MiniCPM5 纯文本模型：无 mmproj，走 text-only 初始化路径
                     await self.mtmdWrapperExample?.initializeTextOnly(modelPath: modelURL.path)
+                } else if selectedModelType == .V5_15B_A2_5B {
+                    // MiniCPM5-15B-A2.5B：bank / 窗口 c / 预读深度用 MiniCPM5_15B_A2_5BConst 自己的默认值，
+                    // 只有 n_ubatch 沿用 V4.7 的设置；窗口预算按这份文件自己的 les.moe.layout 算。
+                    let artifacts = MiniCPM5_15B_A2_5BConst.resolveArtifacts(in: documentsDirectory)
+                    // 训练版 predictor：引擎在第一次建图时读 LLAMA_MOE_PREDICTOR（只有 minicpm5 读它）。
+                    // 每次显式写或清，避免同进程里上一次加载留下的值。`-moePredictor` 启动参数
+                    // 在桥接层里会覆盖这里的值。
+                    let mode = MiniCPM5_15B_A2_5BConst.inferenceMode()
+                    // predictor 只在 slot 方式下有用（它决定预读哪些专家）。
+                    let predictor = (mode == .slot && MiniCPM5_15B_A2_5BConst.predictorEnabled()) ? artifacts?.predictorURL : nil
+                    if let predictor {
+                        setenv("LLAMA_MOE_PREDICTOR", predictor.path, 1)
+                    } else {
+                        unsetenv("LLAMA_MOE_PREDICTOR")
+                    }
+                    print("MTMDWrapperExample: MiniCPM5-15B-A2.5B mode=\(mode.rawValue) predictor = \(predictor?.lastPathComponent ?? "(off)")"
+                          + " switch=\(MiniCPM5_15B_A2_5BConst.predictorEnabled())")
+                    // 自带默认配置，不读 V4.7 的设置（也就不受它的会话值 / 安全网回退影响）。
+                    let depth = MiniCPM5_15B_A2_5BConst.lookaheadDepth()
+                    if mode == .mmap {
+                        // slot bank 0：引擎把 LES 文件整个 mmap，专家是载体张量上的视图。
+                        await self.mtmdWrapperExample?.initializeTextOnly(
+                            modelPath: modelURL.path,
+                            nCtx: MiniCPM5_15B_A2_5BConst.defaultNCtx,
+                            nUbatchOverride: MiniCPMV47Const.nUbatch(),
+                            sampling: MiniCPM5_15B_A2_5BConst.sampling)
+                    } else {
+                        await self.mtmdWrapperExample?.initializeTextOnly(
+                            modelPath: modelURL.path,
+                            nCtx: MiniCPM5_15B_A2_5BConst.defaultNCtx,
+                            moeSlotBank: MiniCPM5_15B_A2_5BConst.slotBank(),
+                            moeDecodeWindow: MiniCPMV47Const.decodeWindow(
+                                modelDir: modelURL,
+                                requestedC: MiniCPM5_15B_A2_5BConst.cacheWindowC(),
+                                kSlotsOverride: depth,
+                                reserveMiBOverride: MiniCPM5_15B_A2_5BConst.windowReserveMiB),
+                            nUbatchOverride: MiniCPMV47Const.nUbatch(),
+                            lookaheadDepthOverride: depth,
+                            sampling: MiniCPM5_15B_A2_5BConst.sampling
+                        )
+                    }
                 } else if selectedModelType == .V26MultiModel {
                     // V2.6 不走 CoreML / ANE，没有冷启动文案。
                     await self.mtmdWrapperExample?.initialize(modelPath: modelURL.path, mmprojPath: mmprojURL!.path)
