@@ -993,8 +993,23 @@ static inline bool is_chatml_image_deferred(int model_version) {
 // 图片 chunk 走 canvas 后 n_pos = 1（整图共用 canvas 原点），但实际有几百个 token
 // 参与计算。之前按 n_past 增量算，带图时把分母压到个位数，P t/s 会低到 5 t/s
 // （实际是 50~70）。文本路径两者相等，所以只在带图时暴露。
+// Block until the target and draft contexts have finished their queued GPU work, so a timer
+// stopped right after includes it (llama_decode returns before the last graph segment completes).
+static void mb_sync_contexts(mb_mtmd_context * ctx) {
+    if (!ctx) return;
+    if (ctx->lctx)     llama_synchronize(ctx->lctx.get());
+    if (ctx->lctx_dft) llama_synchronize(ctx->lctx_dft.get());
+}
+
+void mb_mtmd_synchronize(mb_mtmd_context * ctx) {
+    mb_sync_contexts(ctx);
+}
+
 static void perf_add_prefill(mb_mtmd_context * ctx, int32_t n_tokens, double t0_ms) {
     if (!ctx) return;
+    // Charge the last ubatch's GPU time to prefill, not to the first decode token. Costs
+    // nothing: the next step is sampling, which has to wait for these logits anyway.
+    mb_sync_contexts(ctx);
     perf_begin_turn_if_needed(ctx);
     if (n_tokens > 0) ctx->perf_prefill_tokens += n_tokens;
     ctx->perf_prefill_ms += std::max(0.0, now_ms() - t0_ms);
@@ -2840,9 +2855,9 @@ mb_mtmd_perf mb_mtmd_perf_snapshot(mb_mtmd_context * ctx) {
     ctx->perf_image_ms = 0;
     if (ctx->lctx) {
         const llama_perf_context_data lp = llama_perf_context(ctx->lctx.get());
-        mb_logf("[MBMtmd] perf llama: n_p_eval=%d t_p_eval=%.1f ms = %.2f t/s | n_eval=%d t_eval=%.1f ms = %.2f t/s",
+        mb_logf("[MBMtmd] perf llama: n_p_eval=%d t_p_eval=%.1f ms = %.2f t/s | n_eval=%d t_eval=%.1f ms = %.2f t/s | graphs_reused=%d",
                 lp.n_p_eval, lp.t_p_eval_ms, tok_per_sec(lp.n_p_eval, lp.t_p_eval_ms),
-                lp.n_eval, lp.t_eval_ms, tok_per_sec(lp.n_eval, lp.t_eval_ms));
+                lp.n_eval, lp.t_eval_ms, tok_per_sec(lp.n_eval, lp.t_eval_ms), lp.n_reused);
     }
     if (ctx->spec_rounds > 0) {
         mb_logf("[MBMtmd] spec stats: rounds=%zu drafted=%zu accepted=%zu accept_rate=%.1f%% avg_accept=%.2f",
