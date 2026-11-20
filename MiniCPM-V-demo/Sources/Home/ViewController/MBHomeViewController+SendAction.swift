@@ -74,7 +74,11 @@ extension MBHomeViewController {
         self.cachedImageEmbeddingPerfLog.removeAll()
 
         let ret = await mtmdWrapperExample?.addTextInBackground(inputText)
-        
+
+        if ret != true, mtmdWrapperExample?.isContextFull == true {
+            await MainActor.run { self.showErrorTips(L.Home.contextFull.loc, delay: 4) }
+        }
+
         if ret == true {
             Task {
                 await mtmdWrapperExample?.startGeneration()

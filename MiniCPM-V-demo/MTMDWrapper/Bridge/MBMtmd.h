@@ -59,6 +59,9 @@ typedef struct mb_mtmd_params {
     float temperature;
     float top_p;                 // 1.0 = disabled;  only active when < 1.0
     int   top_k;                 // 0   = disabled;  only active when > 0
+    float min_p;                 // 0   = disabled;  text-only path
+    float repeat_penalty;        // 1.0 = disabled;  text-only path, over the last repeat_last_n tokens
+    int   repeat_last_n;
     bool  use_gpu;
     bool  mmproj_use_gpu;
     bool  warmup;
@@ -222,6 +225,11 @@ typedef struct mb_mtmd_perf {
 // a turn if none is open, so an explicit reset is optional.
 void mb_mtmd_perf_reset(mb_mtmd_context * ctx);
 
+// Block until the target (and draft) context has finished its queued GPU work. Call it
+// after the last mb_mtmd_loop so a timed decode window ends when the work does
+// (llama_decode returns before the graph finishes).
+void mb_mtmd_synchronize(mb_mtmd_context * ctx);
+
 // Copy the current turn's counters. Closes the turn so the next prefill
 // starts a new one. Safe to call with a NULL ctx (returns zeros).
 mb_mtmd_perf mb_mtmd_perf_snapshot(mb_mtmd_context * ctx);
@@ -269,6 +277,10 @@ void mb_mtmd_set_model_version(mb_mtmd_context * ctx, int version);
 // No-op for models without thinking (V-4 / V-2.6). Safe to call between
 // turns; next prefill_text picks up the new value. Must be called after init.
 void mb_mtmd_set_enable_thinking(mb_mtmd_context * ctx, bool enable);
+
+// True once the conversation has filled the context window (n_ctx): generation stops at
+// that point and a further prompt cannot be prefilled. The caller should start a new chat.
+bool mb_mtmd_context_full(mb_mtmd_context * ctx);
 
 // Runtime override of the per-image slice-count knob.
 //

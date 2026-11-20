@@ -41,6 +41,9 @@ public class MTMDWrapper: ObservableObject {
     /// 固定步数是让不同 depth / 不同设备的 decode t/s 可比的前提 —— 否则
     /// 生成长度随模型输出变化，t/s 会混入"生成了多长"这个无关变量。
     public var decodeTokenLimit: Int = 0
+    /// 上一轮生成循环的墙钟时长（毫秒），从第一次 mb_mtmd_loop 到最后一个 token 的 GPU 完成。
+    /// 结束前先 mb_mtmd_synchronize，否则 llama_decode 异步返回时 GPU 尾巴不在计时里。
+    public private(set) var lastDecodeWallMs: Double = 0
 
     /// 26=V2.6, 40=V4.0, 46/460/461=V4.6, 47=V4.7 MoE, 5=MiniCPM5
     public private(set) var modelVersion: Int = 0
@@ -452,6 +455,12 @@ public class MTMDWrapper: ObservableObject {
 
     /// MiniCPM5 / V-4.6 thinking toggle. Stored locally so it survives a later init,
     /// and pushed to the C bridge when a context exists.
+    /// 上一次 prefill 或生成是否因为上下文窗口写满而停止（见 mb_mtmd_context_full）。
+    public var isContextFull: Bool {
+        guard let ctx = context else { return false }
+        return mb_mtmd_context_full(ctx)
+    }
+
     public func setEnableThinking(_ enable: Bool) {
         enableThinking = enable
         guard let ctx = context else { return }
@@ -537,6 +546,7 @@ public class MTMDWrapper: ObservableObject {
         liveSpeedText = ""
         // 固定步数模式（基准）：只数真正生成的 token，不含预置的 <think> 前缀。
         var nDecoded = 0
+        let wallStart = Date()
 
         // 生成循环
         while !Task.isCancelled {
@@ -584,6 +594,8 @@ public class MTMDWrapper: ObservableObject {
 
             // 检查是否生成完成
             if cToken.is_end {
+                mb_mtmd_synchronize(ctx)   // 最后一个 token 的 GPU 尾巴也算进墙钟
+                lastDecodeWallMs = Date().timeIntervalSince(wallStart) * 1000
                 lastPerf = mb_mtmd_perf_snapshot(ctx)
                 mb_mtmd_log_text("OUTPUT(full)", accumulated)
                 updateGenerationState(.completed)
@@ -599,6 +611,8 @@ public class MTMDWrapper: ObservableObject {
             // 否则生成长度随模型输出变化，t/s 会混入无关变量，跨 depth/设备不可比。
             nDecoded += 1
             if decodeTokenLimit > 0 && nDecoded >= decodeTokenLimit {
+                mb_mtmd_synchronize(ctx)   // 最后一个 token 的 GPU 尾巴也算进墙钟
+                lastDecodeWallMs = Date().timeIntervalSince(wallStart) * 1000
                 lastPerf = mb_mtmd_perf_snapshot(ctx)
                 mb_mtmd_log_text("OUTPUT(full)", accumulated)
                 updateGenerationState(.completed)
@@ -607,11 +621,11 @@ public class MTMDWrapper: ObservableObject {
                 return
             }
 
-            // 避免过度占用 CPU
-            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
         }
 
         // 用户点了停止：仍留下这一轮已经跑过的 prefill / decode 数据。
+        mb_mtmd_synchronize(ctx)
+        lastDecodeWallMs = Date().timeIntervalSince(wallStart) * 1000
         lastPerf = mb_mtmd_perf_snapshot(ctx)
         mb_mtmd_log_text("OUTPUT(interrupted)", accumulated)
     }

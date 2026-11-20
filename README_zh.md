@@ -11,6 +11,7 @@
 * **MiniCPM-V 4.7 1B**（dense）
 * **MiniCPM5-1B**（纯文本）
 * **MiniCPM5-2B**（纯文本）
+* **MiniCPM5-15B-A2.5B**（纯文本 MoE，iOS）
 * **VoxCPM2**（语音合成 TTS）
 * **MiniCPM-OCR 1.0**（文档识别 —— iOS / Android / HarmonyOS）
 
@@ -197,6 +198,7 @@ cd MiniCPM-V-demo-Android
 | MiniCPM-V 4.7 1B | 1B | Q4_K_M | ~0.7 GB | ~1.1 GB | ~1.8 GB | **≥ 4 GB** |
 | MiniCPM5-1B | 1B | Q4_K_M | ~0.5 GB | — | ~0.5 GB | **≥ 4 GB** |
 | MiniCPM5-2B | 2B | Q4_K_M | ~1.5 GB | — | ~1.5 GB | **≥ 6 GB** |
+| MiniCPM5-15B-A2.5B | 15B（激活 2.5B） | Q3_gud（Q3_K 专家） | ~6.8 GB | — | ~6.8 GB | **≥ 8 GB**（「最快」模式 ≥ 12 GB） |
 | VoxCPM2 (TTS) | ~2B | Q4_K_M + F16 | ~1.0 GB | — | ~2.8 GB | **≥ 6 GB** |
 | MiniCPM-OCR 1.0 | 752M | Q4_K_M | ~0.5 GB | ~0.9 GB | **~1.6 GB** | **≥ 6 GB** |
 
@@ -204,10 +206,11 @@ cd MiniCPM-V-demo-Android
 
 * `mmproj` 是视觉投影器 + ViT 权重，统一保留 **f16** 精度——视觉塔做低比特量化对感知质量的伤害比 LLM 更明显。
 * MiniCPM5-1B 与 MiniCPM5-2B 为纯文本模型，不需要 `mmproj` 文件。
+* MiniCPM5-15B-A2.5B（仅 iOS）为纯文本模型。**Q3_gud** 量化的路由专家是 Q3_K，其余按 Q4_K_M 配方；GGUF 头里的 `general.file_type` 显示为 Q4_K_M，所以精度写在文件名里。已在 12 GB 内存的 iPhone 18 Pro Max 上验证，见 §2.7。
 * VoxCPM2 需要两个 GGUF 文件（BaseLM + Acoustic），同样不需要 `mmproj`——它是一个纯语音合成模型。
 * MiniCPM-OCR 1.0 是**三个文件**：LLM、4x 视觉投影器，外加一个独立的 PP-DocLayoutV3 ONNX 版面检测模型。iOS、Android 和 HarmonyOS 三端都已接入。它的 `mmproj` 是 4x 投影器，**不能**和聊天模型的 `mmproj` 混用。
 * MiniCPM-V 4.7 35B-A3B 的专家权重用的是 **Q3_K** 量化（`mix_q3gud_im`）而非 Q4，且路由专家已按 expert-major 重排内联在同一个 `.gguf` 里。表中的 **~16.6 GB** = 那一个文件（14.4 GB）+ `mmproj`（1.1 GB），请预留约 17 GB 空闲存储。由于专家是按需从 SSD 流式读取、并不常驻内存，这一档还要求**较快的机身存储**，详见 §2.4。
-* 三端 demo 默认上下文长度为 4K token。上下文越长，KV cache 占用近似线性增长，临界设备上可能需要相应调小。
+* 三端 demo 默认上下文长度为 4K token。MiniCPM5-15B-A2.5B（iOS）为 8K（KV cache 约 224 MB），写满后 App 会提示新建对话。上下文越长，KV cache 占用近似线性增长，临界设备上可能需要相应调小。
 * Android / HarmonyOS 上跑 V 2.6 强烈建议 8 GB 及以上内存。iOS 上 V 2.6 已在 iPhone 15 Pro / 16 系列以及搭载 M 系列芯片的较新 iPad 上验证；早期 6 GB 内存设备容易出现频繁换页。
 * MiniCPM-V 4.7 35B-A3B 已在 12 GB 的 iPhone 17 Pro Max 上验证。内存更小的设备会自动退化为**更小的专家缓存**，仍可运行，但速度明显下降。
 
@@ -302,7 +305,36 @@ MiniCPM-V 4.7 有两个规格：
 
 请从仓库下载语言模型文件（例如 `MiniCPM5-2B-Q4_K_M.gguf`）。MiniCPM5 为纯文本模型，不需要 `mmproj`。
 
-### 2.7 VoxCPM2 GGUF 模型文件（语音合成）
+### 2.7 MiniCPM5-15B-A2.5B GGUF 模型文件（纯文本 MoE，iOS）
+
+MiniCPM5-15B-A2.5B 是纯文本的 thinking MoE 模型（总参数 15B / 激活 2.5B，160 个路由专家，top-16）。
+
+#### 下载
+
+* HuggingFace: [openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
+* ModelScope: [OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
+
+App 内可以直接下载两个文件（设置 → MiniCPM5-15B-A2.5B → **一键下载**）。手动放入时，放到 `Documents/MiniCPM5-15B-A2.5B/` 下：
+
+| 文件 | 大小 | 说明 |
+| --- | --- | --- |
+| `MiniCPM5-15B-A2.5B-Q3_gud-LES.gguf` | ~6.8 GB | 主模型，**必需**。LES 布局：每个路由专家的 `gate|up|down` 在文件里连续存放，一次 `preadv` 就能读完。标准 `llama.cpp` 读不了这种布局。 |
+| `MiniCPM5-15B-A2.5B-predictor.gguf` | ~71 MB | 专家预测器，可选。在同一个 checkpoint 上训练。 |
+
+#### 推理方式
+
+设置 → 功能设置 → **推理方式**，同一个文件有两种跑法，切换后自动重新加载：
+
+* **省内存**（默认）：路由专家按需从闪存读进每层固定大小的窗口，App 的 Metal 内存约 4 GB，速度取决于专家的缓存和预读命中率。
+* **最快**：整个文件 mmap，由系统 page cache 管理。decode 更快，但内存占用随系统 page cache 变化。8 GB 内存的设备不推荐：整个模型放不下，手机可能会重启（App 会标注「不推荐」，切换前再确认一次）。
+
+实测（生成 128 token，top-k 16，Q3_gud）：12 GB 的 iPhone 18 Pro Max 上省内存约 30 t/s、最快约 52 t/s；8 GB 的 iPhone 17 上省内存约 10 t/s，因为系统 page cache 小，大部分专家要从闪存读。
+
+#### 专家预测器
+
+省内存方式下，引擎会提前读入下一层可能用到的专家。目录里有预测器文件（并且打开了「专家预测器」开关）时，用训练好的预测器来猜，命中率更高；没有时退回模型自带的下一层 router。预测器只改变预读哪些专家，**不改变输出**。缺少预测器文件时设置页会提示，也可以在模型页单独下载。
+
+### 2.8 VoxCPM2 GGUF 模型文件（语音合成）
 
 VoxCPM2 是约 2B 参数的语音合成模型，由两个 GGUF 文件组成：
 
@@ -318,7 +350,7 @@ VoxCPM2 支持 30+ 种语言和 9 种中国方言。可直接从文本生成语�
 
 下载后将两个 `.gguf` 文件放入 App 的 **Documents** 目录（iOS），或放入 `/models/{model_id}/` 目录（Android / HarmonyOS）。也可以在 App 内的 **模型管理** 页面直接下载。下载完成后选择 VoxCPM2 模型，App 将自动切换至语音合成界面。
 
-### 2.8 MiniCPM-OCR 1.0 模型文件（文档识别，iOS / Android / HarmonyOS）
+### 2.9 MiniCPM-OCR 1.0 模型文件（文档识别，iOS / Android / HarmonyOS）
 
 MiniCPM-OCR 1.0 把照片、截图或 PDF 页转成 Markdown：先做版面检测切块，再逐块送视觉语言模型识别，最后按阅读顺序拼回标题、正文、表格、公式和印章。
 

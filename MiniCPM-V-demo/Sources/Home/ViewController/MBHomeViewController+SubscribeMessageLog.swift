@@ -82,6 +82,10 @@ extension MBHomeViewController {
                 // 输出完成
                 if !log.isEmpty {
                     self?.thinking = false
+                    // 上下文窗口写满导致的停止：提示新建对话（不写进回答正文）
+                    if self?.mtmdWrapperExample?.isContextFull == true {
+                        self?.showErrorTips(L.Home.contextFull.loc, delay: 4)
+                    }
                 }
                 
                 // 同步给 live stream vc
