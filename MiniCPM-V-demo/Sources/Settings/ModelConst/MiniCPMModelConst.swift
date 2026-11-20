@@ -617,10 +617,10 @@ struct MiniCPMV47Const {
         let budget = headroom - reserve
         guard budget > 0 else { return 0 }
 
-        let nLayers: Int64 = 40
         // 预算覆盖 (c + K)：引擎的 -moeDecodeWindow 只表示**缓存区 c**，
         // 预读区 K 由引擎按预读深度另加（见 llama-moe-slot.cpp 的 resolve_decode_window）。
-        let totalSlots = budget / (bytesPerSlot * nLayers)
+        // bytesPerSlot 已经是全部 MoE 层之和（见 bytesPerSlot(at:)），不要再乘层数。
+        let totalSlots = budget / bytesPerSlot
         let cacheSlots = totalSlots - Int64(kSlots)
         guard cacheSlots > 0 else { return 0 }
         return Int(cacheSlots)
@@ -664,7 +664,7 @@ struct MiniCPMV47Const {
             c = min(requested, deviceDefaultCacheWindowC())
             print("[MODEL] 预算闸不可用 → 缓存取设备默认 c=\(c)（请求值 \(requested) 未采用）")
         }
-        let windowMiB = Int64(c + kSlots) * 40 * bytesPerSlot / 1048576
+        let windowMiB = Int64(c + kSlots) * bytesPerSlot / 1048576
         let line = "[MODEL] decode window: c=\(c) K=\(kSlots) (window \(windowMiB) MiB)"
             + " <- 设置里指定 c=\(requested)"
             + "，覆盖率 \(String(format: "%.0f%%", 100.0 * cacheWindowCoverage(c)))"
@@ -898,8 +898,7 @@ struct MiniCPMV47Const {
         }
         // 关窗口时不分配 c、也不分配预读区。
         if c <= 0 { return 0 }
-        let nLayers: Int64 = 40
-        let bytes = Double(Int64(c + kSlots) * nLayers * bytesPerSlot)
+        let bytes = Double(Int64(c + kSlots) * bytesPerSlot)
         return bytes / (1024.0 * 1024.0 * 1024.0)
     }
 
@@ -1034,7 +1033,9 @@ struct MiniCPMV47Const {
         lookaheadPrefetchDepth()
     }
 
-    /// 每个 expert slot 占多少字节 = 该层全部 tensor 的 bytes_per_expert 之和。
+    /// 每层多一个 expert slot 要多少字节，**已对全部 MoE 层求和**（gguf 头里
+    /// `bytes_per_slot` 的定义，见 llama.h 的 llama_moe_experts_geometry）。
+    /// 调用方直接乘 slot 数即可，不要再乘层数。
     ///
     /// 权威来源是模型文件自身：桥接层的 `mb_moe_experts_geometry` 只读 gguf header
     /// 就能给出逐层预算，不需要加载十几 GiB 权重，也不硬编码量化档位。
