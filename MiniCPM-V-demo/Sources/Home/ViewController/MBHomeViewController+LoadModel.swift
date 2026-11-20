@@ -245,7 +245,11 @@ extension MBHomeViewController {
                         fflush(stdout)
                         exit(0)
                     }
-                    let modelProblems = MiniCPMV47Const.modelProblems(at: artifacts.modelURL)
+                    // 基准专用 `-moeFullMmap`（只配合 -moeTextOnly）：slot bank 置 0，整个 -moeModel 文件
+                    // mmap —— 标准 GGUF，或 LES 单文件（引擎把专家做成载体张量上的视图）。
+                    let benchFullMmap = ProcessInfo.processInfo.arguments.contains("-moeFullMmap")
+                        && ProcessInfo.processInfo.arguments.contains("-moeTextOnly")
+                    let modelProblems = benchFullMmap ? [] : MiniCPMV47Const.modelProblems(at: artifacts.modelURL)
                     self.benchLog("[MOEBENCH] checkpoint=model-problems-after n=\(modelProblems.count)")
                     if !modelProblems.isEmpty {
                         print("MiniCPMV47Const: 模型校验失败 \(modelProblems.count) 个：\n"
@@ -276,8 +280,8 @@ extension MBHomeViewController {
                         await self.mtmdWrapperExample?.initializeTextOnly(
                             modelPath: artifacts.modelURL.path,
                             nCtx: MiniCPMV47Const.defaultNCtx,
-                            moeSlotBank: MiniCPMV47Const.slotBank(),
-                            moeDecodeWindow: MiniCPMV47Const.decodeWindow(modelDir: artifacts.modelURL.deletingLastPathComponent()),
+                            moeSlotBank: benchFullMmap ? 0 : MiniCPMV47Const.slotBank(),
+                            moeDecodeWindow: benchFullMmap ? 0 : MiniCPMV47Const.decodeWindow(modelDir: artifacts.modelURL.deletingLastPathComponent()),
                             nUbatchOverride: MiniCPMV47Const.nUbatch(),
                             draftModelPath: draftPath,
                             // 必须用 effective*：请求值可能超过窗口容量（见该函数说明）。
@@ -503,10 +507,13 @@ extension MBHomeViewController {
                 benchLog(MBDeviceMemoryProbe.memoryReport("after round \(round)"))
                 benchLog(String(
                     format: "[MOEBENCH] round=%d/%d depth=%d prefill_tokens=%d prefill_ms=%.1f prefill_tps=%.2f "
-                          + "decode_tokens=%d decode_ms=%.1f decode_tps=%.2f Kp=%d Kd=%d t=%@",
+                          + "decode_tokens=%d decode_ms=%.1f decode_tps=%.2f decode_wall_ms=%.1f decode_wall_tps=%.2f "
+                          + "Kp=%d Kd=%d t=%@",
                     round, repeats, self.mtmdWrapperExample?.appliedLookaheadPrefetchDepth ?? -1,
                     Int(pt.prefill_tokens), pt.prefill_ms, prTps,
                     Int(pt.decode_tokens), pt.decode_ms, deTps,
+                    inner.lastDecodeWallMs,
+                    inner.lastDecodeWallMs > 0 ? Double(pt.decode_tokens) / (inner.lastDecodeWallMs / 1000.0) : 0,
                     Int(pt.moe_k_prefill), Int(pt.moe_k_decode), elapsed()))
             }
             benchLog("[MOEBENCH] done t=\(elapsed())")
