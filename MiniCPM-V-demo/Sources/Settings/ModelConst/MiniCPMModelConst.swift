@@ -1193,8 +1193,9 @@ struct MiniCPMV47Const {
             return [ModelProblem(file: modelURL.lastPathComponent, required: 0, actual: -1)]
         }
 
-        let expected = downloadFiles.first(where: { $0.localName == modelURL.lastPathComponent })?.bytes
-            ?? downloadFiles.first?.bytes ?? 0
+        // 只和**同名**下载项比大小。`-moeModel` 指向别的模型（例如 MiniCPM5 的 LES 单文件）
+        // 时没有对应的下载项，拿 LCO 的 15.5 GB 去比必然判成「不完整」。
+        let expected = downloadFiles.first(where: { $0.localName == modelURL.lastPathComponent })?.bytes ?? 0
         if expected > 0 && size < expected {
             return [ModelProblem(file: modelURL.lastPathComponent, required: expected, actual: size)]
         }

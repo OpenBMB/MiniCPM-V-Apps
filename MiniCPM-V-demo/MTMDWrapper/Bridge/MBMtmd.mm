@@ -660,6 +660,43 @@ static void apply_moe_nocache_env(const char * where) {
     }
 }
 
+// `-moePredictor <file>`：训练版专家预测器（引擎侧 LLAMA_MOE_PREDICTOR，只在 lookahead 开启时
+// 生效，只改变预读哪些专家，不改变输出）。相对路径按 App 的 Documents 解析。
+// 没给启动参数时不碰调用方已设的环境变量。
+static void apply_moe_predictor_env(const char * where) {
+    NSArray<NSString *> * args = [[NSProcessInfo processInfo] arguments];
+    NSUInteger i = [args indexOfObject:@"-moePredictor"];
+    if (i == NSNotFound || i + 1 >= args.count) {
+        return;
+    }
+    NSString * path = args[i + 1];
+    if (![path isAbsolutePath]) {
+        NSString * docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        path = [docs stringByAppendingPathComponent:path];
+    }
+    setenv("LLAMA_MOE_PREDICTOR", [path UTF8String], 1);
+    fprintf(stderr, "[MBMtmd] %s LLAMA_MOE_PREDICTOR=%s\n", where, [path UTF8String]);
+}
+
+// GGUF 里的 `<arch>.expert_used_count`（checkpoint 的 top-k）；不是 MoE 时返回 0。
+static int32_t mb_model_expert_used(const llama_model * model) {
+    char arch[64] = {0};
+    if (llama_model_meta_val_str(model, "general.architecture", arch, sizeof(arch)) <= 0) {
+        return 0;
+    }
+    char key[128];
+    snprintf(key, sizeof(key), "%s.expert_used_count", arch);
+    char val[32] = {0};
+    return llama_model_meta_val_str(model, key, val, sizeof(val)) > 0 ? atoi(val) : 0;
+}
+
+// 预热表（MBPrewarmTable.h）是 MiniCPM-V 4.7 35B-A3B 的专家 id（0..255），对别的模型
+// 没有意义，还会越界。模型加载后、建 context 之前（引擎在建 context 时读表）关掉。
+static void mb_disable_prewarm_unless_qwen35moe(mb_mtmd_context * ctx, const char * where);
+
+// top-k 取 checkpoint 自己的 expert_used_count（V4.7 是 8，MiniCPM5 是 16），桥接层不改 K。
+static void mb_init_moe_k_from_model(mb_mtmd_context * ctx, const char * where);
+
 // `-moeLogEveryStep`：每步都打引擎的 decode 归因行（默认只在 #<=8 和 %32 打）。
 // 没有它，设备上只能看到前 8 步 —— 而前 8 步还在缓存爬坡，稳态 miss 根本看不到，
 // 拿爬坡值比配置会得出完全错误的结论。
@@ -1022,7 +1059,6 @@ static void perf_add_prep(mb_mtmd_context * ctx, double ms) {
     ctx->perf_prep_ms += std::max(0.0, ms);
 }
 
-static constexpr int MB_MOE_EXPERTS_USED = 8;
 static constexpr int MB_MOE_EXPERT_COUNT = 256;
 // p8d8 (top-8 for both prefill and decode) is the only precision-safe default:
 // the experts and the checkpoint are trained at K=8, and lowering K changes the
@@ -1054,6 +1090,31 @@ static void apply_moe_k(mb_mtmd_context * ctx, int32_t k) {
     }
     llama_set_n_expert_used(ctx->lctx.get(), k);
     fprintf(stderr, "[MBMtmd] moe_k %d -> %d\n", cur, llama_n_expert_used(ctx->lctx.get()));
+}
+
+static void mb_disable_prewarm_unless_qwen35moe(mb_mtmd_context * ctx, const char * where) {
+    if (!ctx || ctx->moe_prewarm_level <= 0) {
+        return;
+    }
+    char arch[64] = {0};
+    llama_model_meta_val_str(ctx->model.get(), "general.architecture", arch, sizeof(arch));
+    if (strcmp(arch, "qwen35moe") == 0) {
+        return;
+    }
+    unsetenv("LLAMA_MOE_PREWARM");
+    ctx->moe_prewarm_level = 0;
+    mb_logf("[MBMtmd] %s prewarm: off (tables are for qwen35moe, model is %s)", where, arch);
+}
+
+static void mb_init_moe_k_from_model(mb_mtmd_context * ctx, const char * where) {
+    if (!ctx || !ctx->moe_enabled) {
+        return;
+    }
+    const int32_t k = mb_model_expert_used(ctx->model.get());
+    ctx->moe_k_prefill = k > 0 ? k : MB_MOE_K_PREFILL;
+    ctx->moe_k_decode  = k > 0 ? k : MB_MOE_K_DECODE;
+    fprintf(stderr, "[MBMtmd] %s moe_k=prefill%d/decode%d (model metadata)\n",
+            where, ctx->moe_k_prefill, ctx->moe_k_decode);
 }
 
 // Adapter for the older mtmd shipped by this engine branch.
@@ -1887,14 +1948,12 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         apply_moe_dummy_read_env("before model load");
         apply_moe_read_delay_env("before model load");
         apply_moe_nocache_env("before model load");
+        apply_moe_predictor_env("before model load");
         ctx->moe_prewarm_level = apply_moe_prewarm_env(
             params.moe_prewarm_level, params.moe_prewarm_table_id,
             params.moe_decode_window, "before model load");
-        ctx->moe_k_prefill = MB_MOE_K_PREFILL;
-        ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
-                ctx->moe_k_prefill, ctx->moe_k_decode);
+        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth));
     }
 
     ctx->model.reset(llama_model_load_from_file(model_path, mparams));
@@ -1902,6 +1961,8 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         set_error(ctx.get(), std::string("Failed to load model from: ") + model_path);
         return nullptr;
     }
+    mb_init_moe_k_from_model(ctx.get(), "after model load");
+    mb_disable_prewarm_unless_qwen35moe(ctx.get(), "after model load");
 
 // 内存预算：n_ubatch 主导 GPU compute buffer（n_ubatch=1024 约 970 MiB）。
 // n_batch 保持 2048（只影响 dispatch 次数）。flash_attn=AUTO。
@@ -1927,7 +1988,7 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
             requested_ubatch = 1;
         }
         if (slot_bank < MB_MOE_EXPERT_COUNT) {
-            const int max_ub = std::max(1, slot_bank / MB_MOE_EXPERTS_USED);
+            const int max_ub = std::max(1, slot_bank / std::max(1, ctx->moe_k_prefill));
             requested_ubatch = std::min(requested_ubatch, max_ub);
         }
     }
@@ -2128,14 +2189,12 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         apply_moe_dummy_read_env("before model load (text-only)");
         apply_moe_read_delay_env("before model load (text-only)");
         apply_moe_nocache_env("before model load (text-only)");
+        apply_moe_predictor_env("before model load (text-only)");
         ctx->moe_prewarm_level = apply_moe_prewarm_env(
             params.moe_prewarm_level, params.moe_prewarm_table_id,
             params.moe_decode_window, "before model load (text-only)");
-        ctx->moe_k_prefill = MB_MOE_K_PREFILL;
-        ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
-                ctx->moe_k_prefill, ctx->moe_k_decode);
+        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth));
     }
 
     ctx->model.reset(llama_model_load_from_file(model_path, mparams));
@@ -2143,6 +2202,8 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         set_error(ctx.get(), std::string("Failed to load model from: ") + model_path);
         return nullptr;
     }
+    mb_init_moe_k_from_model(ctx.get(), "after model load (text-only)");
+    mb_disable_prewarm_unless_qwen35moe(ctx.get(), "after model load (text-only)");
 
     // ---- Create llama_context ----
     // 自适应：没显式钉 ub 时，先用**小** ub 建 context（短 prompt 的常见情形直接受益，
