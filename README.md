@@ -325,7 +325,7 @@ The app downloads the single file itself (Settings → MiniCPM5-15B-A2.5B → **
 
 | File | Size | Notes |
 | --- | --- | --- |
-| `LCO-MiniCPM5-15B-A2.5B-Q3_gud.gguf` | ~6.8 GB | The whole model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. It also carries the trained expert predictor as resident tensors, so there is no second file. Standard `llama.cpp` cannot load this layout. |
+| `LCO-MiniCPM5-15B-A2_5B-Q3_gud.gguf` | ~6.8 GB | The whole model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. It also carries the trained expert predictor as resident tensors, so there is no second file. Standard `llama.cpp` cannot load this layout. |
 
 The `LCO-` prefix marks our own repack: the weights are the upstream BF16 checkpoint quantised to Q3_gud (Q3_K routed experts, otherwise the Q4_K_M recipe) and then repacked expert-major. The packing moves bytes without re-quantising, and `convert_les_gguf.py verify` proves it: every resident tensor and every expert region is byte-identical to the source.
 

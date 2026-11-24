@@ -1280,7 +1280,8 @@ struct MiniCPM5_15B_A2_5BConst {
         }
         /// 设置列表 / 首页标题里的名字。
         var displayedName: String { "\(MiniCPM5_15B_A2_5BConst.displayedName) \(label)" }
-        var modelFileName: String { "LCO-MiniCPM5-15B-A2.5B-\(label).gguf" }
+        /// 文件名里的版本号用下划线（`A2_5B`），目录名才用点（`A2.5B`）—— 与 4.7 那个仓库一致。
+        var modelFileName: String { "LCO-MiniCPM5-15B-A2_5B-\(label).gguf" }
         var modelBytes: Int64 {
             switch self {
             case .q3gud: return 6_819_614_720
