@@ -453,7 +453,8 @@ extension MBHomeViewController {
                     // 自动化基准：只在 `-moeBench` 启动参数下触发。
                     // 放在这里是因为此时模型已 init 完成、depth 已由启动参数落地，
                     // 后面走的是和手动一模一样的 addText → startGeneration 链路。
-                    if selectedModelType == .V47MoE {
+                    // 15B 走同一条 addText → startGeneration 链路，所以也能跑同一套基准。
+                    if selectedModelType == .V47MoE || selectedModelType == .V5_15B_A2_5B {
                         self.runMoeBenchIfRequested()
                     }
                 }
