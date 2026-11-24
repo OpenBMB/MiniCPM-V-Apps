@@ -190,6 +190,8 @@ extension MBHomeViewController {
                     // 自带默认配置，不读 V4.7 的设置（也就不受它的会话值 / 安全网回退影响）。
                     let depth = MiniCPM5_15B_A2_5BConst.lookaheadDepth()
                     if mode == .mmap {
+                        // 整份映射最容易被系统杀掉：先落 pending，撑过第一轮问答才算过。
+                        MiniCPM5_15B_A2_5BConst.markMmapLoadStarted()
                         // slot bank 0：引擎把 LES 文件整个 mmap，专家是载体张量上的视图。
                         await self.mtmdWrapperExample?.initializeTextOnly(
                             modelPath: modelURL.path,

@@ -1380,6 +1380,43 @@ struct MiniCPM5_15B_A2_5BConst {
     static func setInferenceMode(_ mode: InferenceMode) {
         UserDefaults.standard.set(mode.rawValue, forKey: inferenceModeDefaultsKey)
     }
+
+    // ── 「最快」模式的加载安全网 ─────────────────────────────────────────────
+    // 整份 mmap 要占「文件 + 约 4 GB」，12 GB 机型在系统繁忙时第一次 prefill 仍可能被 jetsam
+    // 杀掉。而 mmap 现在是默认，若每次都默认 mmap，用户会被卡成「一开就闪退」，连设置页都
+    // 进不去。做法同 V4.7 的缓存窗口：加载前落 pending，**撑过第一轮问答**才清；下次启动
+    // 发现 pending 还在，就把模式降成「省内存」。
+    private static let mmapPendingKey = "minicpm5_15b_a2_5b_mmap_pending"
+
+    /// 以「最快」开始加载前调用。必须 synchronize()，否则异步写盘赶不上崩溃。
+    static func markMmapLoadStarted() {
+        let ud = UserDefaults.standard
+        ud.set(true, forKey: mmapPendingKey)
+        ud.synchronize()
+    }
+
+    /// 第一轮问答完整跑完后调用：这一档在这台机器上是站得住的。
+    static func markMmapLoadOk() {
+        let ud = UserDefaults.standard
+        guard ud.bool(forKey: mmapPendingKey) else { return }
+        ud.set(false, forKey: mmapPendingKey)
+        ud.synchronize()
+    }
+
+    /// 上次「最快」没撑过第一轮 → 降成「省内存」。必须在
+    /// `application(_:didFinishLaunchingWithOptions:)` 里、且只调一次。
+    static func applyMmapCrashRecoveryIfNeeded() {
+        let ud = UserDefaults.standard
+        guard ud.bool(forKey: mmapPendingKey) else { return }
+        ud.set(false, forKey: mmapPendingKey)
+        guard inferenceMode() == .mmap else {
+            ud.synchronize()
+            return
+        }
+        ud.set(InferenceMode.slot.rawValue, forKey: inferenceModeDefaultsKey)
+        ud.synchronize()
+        print("[MODEL] 上次「最快」模式没跑完（可能被系统杀掉）→ 已切回「省内存」")
+    }
     /// 「最快」方式需要的剩余内存：整个模型文件要放进内存，再留约 4 GB 给计算 buffer、KV 和系统。
     /// 与 `mmapDiscouraged` 用同一个口径，弹窗里给出的数字才对得上门槛。
     static func mmapRequiredBytes(precision: Precision = selectedPrecision()) -> Int64 {
