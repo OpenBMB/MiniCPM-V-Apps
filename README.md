@@ -336,7 +336,14 @@ Settings → Feature settings → **Inference mode** switches between two ways o
 * **Fastest** (default): the whole file is memory-mapped and the OS page cache manages it. Quickest decode, but memory use follows the system's page cache. On a device that cannot hold the file plus about 4 GB, this is not the default: the phone may restart, so the app falls back to **Memory saver** there. Picking it by hand on such a device is still possible, behind a confirmation.
 * **Memory saver**: routed experts are read from flash on demand into a fixed per-layer window. The app's Metal memory stays at about 4 GB. Speed depends on how many experts are already cached or prefetched. This is the only mode that uses the trained expert predictor.
 
-Measured with 128-token generations (top-k 16, Q3_gud): about 30 t/s (memory saver) / 52 t/s (fastest) on a 12 GB iPhone 18 Pro Max, and about 10 t/s (memory saver) on an 8 GB iPhone 17, where most expert reads go to flash because the OS page cache is small.
+Measured on an iPhone 18 Pro Max (12 GB), Q3_gud, 64 generated tokens after a 22-token prompt:
+
+| Mode | Prefill | Decode (wall clock) | Metal memory |
+| --- | --- | --- | --- |
+| Fastest | 90.9 t/s | 49.9 t/s | 6.83 GiB (weights mapped) |
+| Memory saver + predictor | 26.4 t/s | 24.4 t/s | 4.23 GiB |
+
+An 8 GB iPhone 17 gets about 10 t/s in memory saver, because most expert reads go to flash: the OS page cache there is too small to hold the expert set.
 
 #### Expert predictor
 
