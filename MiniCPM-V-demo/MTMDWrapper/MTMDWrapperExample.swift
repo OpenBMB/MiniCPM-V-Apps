@@ -322,7 +322,7 @@ public class MTMDWrapperExample: ObservableObject {
             )
             self.params = params
             try await mtmdWrapper.initializeTextOnly(with: params)
-            print("MTMDWrapperExample: text-only init, n_ctx = \(params.nCtx), n_ubatch = \(nUbatch), temp = 0.6, specDraftNMax = \(params.specDraftNMax), draft = \(draftModelPath.isEmpty ? "(none)" : draftModelPath)")
+            print("MTMDWrapperExample: text-only init, n_ctx = \(params.nCtx), n_ubatch = \(nUbatch), temp = \(params.temperature), specDraftNMax = \(params.specDraftNMax), draft = \(draftModelPath.isEmpty ? "(none)" : draftModelPath)")
             self.multiModelLoadingSuccess = true
         } catch {
             errorMessage = error.localizedDescription

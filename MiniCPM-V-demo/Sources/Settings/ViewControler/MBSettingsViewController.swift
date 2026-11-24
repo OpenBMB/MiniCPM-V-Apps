@@ -795,7 +795,7 @@ extension MBSettingsViewController {
                 model15b.status = "selected"
                 model15b.statusString = mtmdWrapperExample?.multiModelLoadingSuccess == true
                     ? L.Settings.statusInUse.loc : L.Settings.statusPendingLoad.loc
-            } else if let artifacts15b {
+            } else if artifacts15b != nil {
                 model15b.status = "none"
                 model15b.statusString = L.Download.statusDownloaded.loc
             } else {
@@ -928,7 +928,9 @@ extension MBSettingsViewController {
             modeModel.title = Self.rowInferenceMode
             modeModel.icon = UIImage(systemName: "bolt.horizontal")
             modeModel.accessoryIcon = UIImage(named: "setting_accessory_icon")
+            // 没设过时是自动挑的（装得下就「最快」）；标出来，免得用户以为设置被忽略。
             modeModel.detailText = MiniCPM5_15B_A2_5BConst.inferenceMode().displayName
+                + (MiniCPM5_15B_A2_5BConst.inferenceModeIsDefault() ? " · " + L.Settings.minicpm5ModeAuto.loc : "")
             section.append(modeModel)
         }
         if UserDefaults.standard.string(forKey: "current_selected_model") == MiniCPM5_15B_A2_5BConst.userDefaultsKey,

@@ -81,6 +81,7 @@ public enum L {
         public static let minicpm5MmapUseAnyway = "settings.minicpm5.mode.mmapUseAnyway"
         public static let minicpm5ModeSlot = "settings.minicpm5.mode.slot"
         public static let minicpm5RowInferenceMode = "settings.row.minicpm5.inferenceMode"
+        public static let minicpm5ModeAuto = "settings.minicpm5.mode.auto"
         public static let slotBankTitle                   = "settings.slotBank.title"
         public static let slotBankMessage                 = "settings.slotBank.message"
         public static let slotBankHint                    = "settings.slotBank.hint"

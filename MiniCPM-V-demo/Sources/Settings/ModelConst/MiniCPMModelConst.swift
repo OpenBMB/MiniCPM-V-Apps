@@ -1336,10 +1336,12 @@ struct MiniCPM5_15B_A2_5BConst {
     // ── 推理方式 ────────────────────────────────────────────────────────────────
     // 同一个 LES 文件两种跑法（引擎侧：slot bank > 0 走 slot，= 0 整个文件 mmap）。
     enum InferenceMode: String, CaseIterable {
-        /// 专家按需从闪存读进 App 自己的窗口：内存占用固定（约 4 GB），速度取决于命中。
-        case slot
         /// 整个模型映射进内存，由系统 page cache 管理：最快，但内存占用随系统状况变化。
+        /// 默认项（装得下时）。
         case mmap
+        /// 专家按需从闪存读进 App 自己的窗口：内存占用固定（约 4 GB），速度取决于命中。
+        /// 内存装不下整份模型时的默认项。
+        case slot
 
         var displayName: String {
             switch self {
@@ -1349,19 +1351,39 @@ struct MiniCPM5_15B_A2_5BConst {
         }
     }
     static let inferenceModeDefaultsKey = "minicpm5_15b_a2_5b_inference_mode"
-    /// 启动参数 `-moeFullMmap` 强制 mmap（基准用）；否则读设置，默认 slot。
+    /// 默认「最快」（整个文件 mmap）：本模型只读一次、专家又分散，交给系统 page cache 反而最快。
+    ///
+    /// 但物理内存装不下「模型 + 4 GB」时不作为默认 —— 8 GB 机型整份 mmap 实测会把系统内存压垮，
+    /// 不只是 App 被杀，手机会重启。这种情况退回「省内存」，用户仍可在设置里手动选「最快」
+    /// （会先弹确认）。启动参数 `-moeFullMmap` / `-moeMemorySaver` 可强制覆盖，供基准用。
     static func inferenceMode() -> InferenceMode {
-        if ProcessInfo.processInfo.arguments.contains("-moeFullMmap") { return .mmap }
-        let raw = UserDefaults.standard.string(forKey: inferenceModeDefaultsKey) ?? ""
-        return InferenceMode(rawValue: raw) ?? .slot
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-moeFullMmap") { return .mmap }
+        if args.contains("-moeMemorySaver") { return .slot }
+        // 用户显式选过就用他选的（包括在 8 GB 机型上确认过的「最快」）。
+        if let raw = UserDefaults.standard.string(forKey: inferenceModeDefaultsKey),
+           let chosen = InferenceMode(rawValue: raw) {
+            return chosen
+        }
+        return defaultInferenceMode()
+    }
+    /// 没选过时的默认：装得下就「最快」，装不下就「省内存」。
+    static func defaultInferenceMode() -> InferenceMode {
+        mmapDiscouraged() ? .slot : .mmap
+    }
+    /// 当前显示的是不是「本机自动挑的」（没设过 key）。设置页据此加一句说明。
+    static func inferenceModeIsDefault() -> Bool {
+        if ProcessInfo.processInfo.arguments.contains("-moeFullMmap")
+            || ProcessInfo.processInfo.arguments.contains("-moeMemorySaver") { return false }
+        return UserDefaults.standard.string(forKey: inferenceModeDefaultsKey) == nil
     }
     static func setInferenceMode(_ mode: InferenceMode) {
         UserDefaults.standard.set(mode.rawValue, forKey: inferenceModeDefaultsKey)
     }
-    /// 「最快」方式需要的剩余内存：整个模型文件要放进内存，再留约 0.5 GB 给计算 buffer 和 KV。
-    /// 不够时 GPU 第一次读权重就会被系统杀掉。
+    /// 「最快」方式需要的剩余内存：整个模型文件要放进内存，再留约 4 GB 给计算 buffer、KV 和系统。
+    /// 与 `mmapDiscouraged` 用同一个口径，弹窗里给出的数字才对得上门槛。
     static func mmapRequiredBytes(precision: Precision = selectedPrecision()) -> Int64 {
-        precision.modelBytes + 512 * 1024 * 1024
+        precision.modelBytes + 4 * 1024 * 1024 * 1024
     }
     /// 物理内存小于「模型文件 + 4 GB」时不推荐「最快」：8 GB 的 iPhone 17 上整份 mmap
     /// 第一次 prefill 就把系统内存压垮（整机重启，不只是 App 被杀）。仍允许选，选前要确认。

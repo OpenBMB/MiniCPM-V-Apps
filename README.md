@@ -333,8 +333,8 @@ The `LCO-` prefix marks our own repack: the weights are the upstream BF16 checkp
 
 Settings → Feature settings → **Inference mode** switches between two ways of running the same file. Switching reloads the model.
 
-* **Memory saver** (default): routed experts are read from flash on demand into a fixed per-layer window. The app's Metal memory stays at about 4 GB. Speed depends on how many experts are already cached or prefetched.
-* **Fastest**: the whole file is memory-mapped and the OS page cache manages it. Faster decode, but memory use follows the system's page cache. Not recommended on 8 GB devices: the whole model does not fit, and the phone may restart (the app marks it as not recommended and asks before switching).
+* **Fastest** (default): the whole file is memory-mapped and the OS page cache manages it. Quickest decode, but memory use follows the system's page cache. On a device that cannot hold the file plus about 4 GB, this is not the default: the phone may restart, so the app falls back to **Memory saver** there. Picking it by hand on such a device is still possible, behind a confirmation.
+* **Memory saver**: routed experts are read from flash on demand into a fixed per-layer window. The app's Metal memory stays at about 4 GB. Speed depends on how many experts are already cached or prefetched. This is the only mode that uses the trained expert predictor.
 
 Measured with 128-token generations (top-k 16, Q3_gud): about 30 t/s (memory saver) / 52 t/s (fastest) on a 12 GB iPhone 18 Pro Max, and about 10 t/s (memory saver) on an 8 GB iPhone 17, where most expert reads go to flash because the OS page cache is small.
 
