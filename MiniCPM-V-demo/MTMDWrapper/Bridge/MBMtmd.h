@@ -222,6 +222,11 @@ typedef struct mb_mtmd_perf {
 // a turn if none is open, so an explicit reset is optional.
 void mb_mtmd_perf_reset(mb_mtmd_context * ctx);
 
+// Block until the target (and draft) context has finished its queued GPU work. Call it
+// after the last mb_mtmd_loop so a timed decode window ends when the work does
+// (llama_decode returns before the graph finishes).
+void mb_mtmd_synchronize(mb_mtmd_context * ctx);
+
 // Copy the current turn's counters. Closes the turn so the next prefill
 // starts a new one. Safe to call with a NULL ctx (returns zeros).
 mb_mtmd_perf mb_mtmd_perf_snapshot(mb_mtmd_context * ctx);
