@@ -67,9 +67,18 @@ typedef struct mb_mtmd_params {
     bool  warmup;
     int   image_max_tokens;
     int   image_max_slice_nums;  // llava-uhd slice cap (minicpmv / lfm2); -1 = model default
-    int   moe_slot_bank;         // in-RAM expert slots; 0 = the model has no routed experts
+    int   moe_slot_bank;         // in-RAM expert slots; 0 = stream the experts / map them with the file
     int   moe_decode_window;     // per-layer decode cache width in slots; 0 = app decides (see MTMDParams)
     int   moe_lookahead_prefetch_depth;        // 0 = off; 1..16 = predicted experts to prefetch
+    // Use the trained expert predictor carried **inside the model file** to decide what to
+    // prefetch (engine: `llama_model_params.moe_expert_predictor`). Needs a slot bank. If the
+    // file has no predictor tensors the flag is dropped and the block's own router is used.
+    // Only changes which experts are read early, never the output.
+    bool  moe_expert_predictor;
+    // Model generation, as used by the chat-template branches (0 = unknown). Init uses to be
+    // guessed from `moe_slot_bank`, which forced every streamed model to 47 and gave a
+    // MiniCPM5 MoE file the V4.7 "thinking off" prefix. Callers that know say so up front.
+    int   model_version;
     // Expert-window cache prewarm (LLAMA_MOE_PREWARM). 0 = off; else the table size
     // (one of 8/16/32/48/64/96) of the **weighted** table baked into MBPrewarmTable.h.
     // The bridge writes the table to the sandbox and points the engine at it; the

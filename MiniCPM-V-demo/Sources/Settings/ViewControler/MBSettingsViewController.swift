@@ -797,8 +797,7 @@ extension MBSettingsViewController {
                     ? L.Settings.statusInUse.loc : L.Settings.statusPendingLoad.loc
             } else if let artifacts15b {
                 model15b.status = "none"
-                model15b.statusString = artifacts15b.predictorURL == nil
-                    ? L.Settings.statusReadyNoPredictor.loc : L.Download.statusDownloaded.loc
+                model15b.statusString = L.Download.statusDownloaded.loc
             } else {
                 model15b.status = "none"
                 model15b.statusString = L.Download.statusNotDownloaded.loc
@@ -937,20 +936,15 @@ extension MBSettingsViewController {
             let predictorModel = MBSettingsModel()
             predictorModel.title = L.Settings.minicpm5RowPredictor.loc
             predictorModel.icon = UIImage(systemName: "wand.and.stars")
-            if MiniCPM5_15B_A2_5BConst.resolveArtifacts()?.predictorURL == nil {
-                // 没有预测器文件：开关无意义，改成一行说明（去模型详情页可以补下）。
-                predictorModel.detailText = L.Settings.minicpm5PredictorMissing.loc
-                section.append(predictorModel)
-            } else {
-                predictorModel.isSwitchEnabled = true
-                predictorModel.switchIsOn = MiniCPM5_15B_A2_5BConst.predictorEnabled()
-                predictorModel.switchValueChanged = { [weak self] on in
-                    MiniCPM5_15B_A2_5BConst.setPredictorEnabled(on)
-                    NotificationCenter.default.post(name: .mbModelSelectionChanged, object: nil)
-                    DispatchQueue.main.async { self?.loadTableViewData() }
-                }
-                section.append(predictorModel)
+            // 预测头就在主模型文件里，所以这里只有开/关；关掉时预读退回每层自己的 router。
+            predictorModel.isSwitchEnabled = true
+            predictorModel.switchIsOn = MiniCPM5_15B_A2_5BConst.predictorEnabled()
+            predictorModel.switchValueChanged = { [weak self] on in
+                MiniCPM5_15B_A2_5BConst.setPredictorEnabled(on)
+                NotificationCenter.default.post(name: .mbModelSelectionChanged, object: nil)
+                DispatchQueue.main.async { self?.loadTableViewData() }
             }
+            section.append(predictorModel)
         }
 
         // 显示 P/D 速度：拨一下即时生效（只控制工具条上那行文字是否显示，不影响推理）。

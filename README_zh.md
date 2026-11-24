@@ -311,15 +311,16 @@ MiniCPM5-15B-A2.5B 是纯文本的 thinking MoE 模型（总参数 15B / 激活 
 
 #### 下载
 
-* HuggingFace: [openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
-* ModelScope: [OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
+* HuggingFace: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
+* ModelScope: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://modelscope.cn/models/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
 
-App 内可以直接下载两个文件（设置 → MiniCPM5-15B-A2.5B → **一键下载**）。手动放入时，放到 `Documents/MiniCPM5-15B-A2.5B/` 下：
+App 内可以直接下载这一个文件（设置 → MiniCPM5-15B-A2.5B → **一键下载**）。手动放入时，放到 `Documents/MiniCPM5-15B-A2.5B/` 下：
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `MiniCPM5-15B-A2.5B-Q3_gud-LES.gguf` | ~6.8 GB | 主模型，**必需**。LES 布局：每个路由专家的 `gate|up|down` 在文件里连续存放，一次 `preadv` 就能读完。标准 `llama.cpp` 读不了这种布局。 |
-| `MiniCPM5-15B-A2.5B-predictor.gguf` | ~71 MB | 专家预测器，可选。在同一个 checkpoint 上训练。 |
+| `LCO-MiniCPM5-15B-A2.5B-Q3_gud.gguf` | ~6.8 GB | 完整模型，**必需**。LES 布局：每个路由专家的 `gate|up|down` 在文件里连续存放，一次 `preadv` 就能读完；训练版专家预测器也作为常驻张量放在同一个文件里，所以没有第二个文件。标准 `llama.cpp` 读不了这种布局。 |
+
+`LCO-` 前缀表示这是我们自己重打包的产物：权重是上游 BF16 checkpoint 量化到 Q3_gud（路由专家 Q3_K，其余按 Q4_K_M 配方）之后再按 expert-major 重排。重排只搬字节、不重新量化，`convert_les_gguf.py verify` 会逐字节证明这一点：常驻张量和每个专家区都与源文件完全一致。
 
 #### 推理方式
 
@@ -332,7 +333,9 @@ App 内可以直接下载两个文件（设置 → MiniCPM5-15B-A2.5B → **一�
 
 #### 专家预测器
 
-省内存方式下，引擎会提前读入下一层可能用到的专家。目录里有预测器文件（并且打开了「专家预测器」开关）时，用训练好的预测器来猜，命中率更高；没有时退回模型自带的下一层 router。预测器只改变预读哪些专家，**不改变输出**。缺少预测器文件时设置页会提示，也可以在模型页单独下载。
+省内存方式下，引擎会提前读入下一层可能用到的专家。预测器和模型在同一个 checkpoint 上训练，并且**打包在同一个 GGUF 文件里**（常驻的 `ffn_gate_inp_pred` / `_prev` 张量，约 71 MB，占那 6.8 GB 的一部分），所以不需要额外下载任何东西。打开「专家预测器」开关就用这个训练好的头；关掉开关、或者文件里本来就没有，则退回模型自带的下一层 router。预测器只改变预读哪些专家，**不改变输出**。
+
+这套布局属于 LES 规范的一部分，所以带预测器的模型仍然是一个文件：以后想换预测头，用 `convert_les_gguf.py attach` 就能替换，不必重新打包几 GB 的专家区。
 
 ### 2.8 VoxCPM2 GGUF 模型文件（语音合成）
 

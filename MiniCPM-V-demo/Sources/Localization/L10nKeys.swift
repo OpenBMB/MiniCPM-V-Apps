@@ -73,7 +73,6 @@ public enum L {
         public static let cacheWindowRevertedTitle        = "settings.cacheWindow.reverted.title"
         public static let cacheWindowRevertedBody         = "settings.cacheWindow.reverted.body"
         public static let rowSlotBank                     = "settings.row.slotBank"
-        public static let minicpm5PredictorMissing = "settings.minicpm5.predictor.missing"
         public static let minicpm5RowPredictor = "settings.row.minicpm5.predictor"
         public static let minicpm5InferenceModeMessage = "settings.minicpm5.mode.message"
         public static let minicpm5ModeMmap = "settings.minicpm5.mode.mmap"
@@ -104,7 +103,6 @@ public enum L {
         public static let streamingMarkdownHint           = "settings.streamingMarkdown.hint"
 
         public static let statusInUse        = "settings.status.inUse"
-        public static let statusReadyNoPredictor = "settings.status.readyNoPredictor"
         public static let statusPendingLoad = "settings.status.pendingLoad"
 
         // Alerts
@@ -149,9 +147,6 @@ public enum L {
         // V4.7 detail rows
         public static let v47RowMainModel   = "modelDetail.v47.row.mainModel"
         public static let v47RowVisionTower = "modelDetail.v47.row.visionTower"
-        public static let minicpm5PredictorTapToDownload = "modelDetail.minicpm5.predictor.tapToDownload"
-        public static let minicpm5PredictorFailedTapToRetry = "modelDetail.minicpm5.predictor.failedTapToRetry"
-        public static let minicpm5RowPredictor = "modelDetail.minicpm5.row.predictor"
         public static let v47RowExperts     = "modelDetail.v47.row.experts"
         // Format with %d for the percent value: "下载中 %d%%" / "Downloading %d%%"
         public static let mainButtonDownloadingFormat = "modelDetail.mainButton.downloadingFormat"

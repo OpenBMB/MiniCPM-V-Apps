@@ -61,7 +61,6 @@ extension LocalizationManager {
         L.Settings.cacheWindowRevertedTitle:          "专家缓存已回退",
         L.Settings.cacheWindowRevertedBody:           "上次把每层槽数设成 c=%@ 后 App 没能完成加载，已自动退回「自动」档。\n换一个更小的值再试。",
         L.Settings.rowSlotBank:                       "专家槽位（slot bank）",
-        L.Settings.minicpm5PredictorMissing: "未找到预测器文件，预读改用模型自带的 router",
         L.Settings.minicpm5RowPredictor: "专家预测器",
         L.Settings.minicpm5InferenceModeMessage: "省内存：专家按需从闪存读取，App 内存固定约 4 GB，速度取决于命中率。\n最快：整个模型映射进内存，由系统管理，内存占用随手机状况变化。需要手机剩余内存至少约 %@，不够时 App 会被系统关闭。",
         L.Settings.minicpm5ModeMmap: "最快（整个模型映射）",
@@ -92,7 +91,6 @@ extension LocalizationManager {
         L.Settings.streamingMarkdownHint:             "开启后，模型边生成边套用 Markdown 样式；关闭时保持整段输出完成后再渲染。关闭更稳（生成过程中文字不会因样式重排而抖动）。",
 
         L.Settings.statusInUse:          "正在使用",
-        L.Settings.statusReadyNoPredictor: "已就绪（无预测器）",
         L.Settings.statusPendingLoad: "待加载",
 
         L.Settings.alertNoWrapper:       "未传入 mtmdWrapperExample，无法初始化下载管理器。",
@@ -120,9 +118,6 @@ extension LocalizationManager {
         L.ModelDetail.mainButtonOneTapDownloadV471B:  "一键下载（约 1.8 GB）",
         L.ModelDetail.v47RowMainModel:   "主模型",
         L.ModelDetail.v47RowVisionTower: "视觉塔（mmproj）",
-        L.ModelDetail.minicpm5PredictorTapToDownload: "未下载，点此下载",
-        L.ModelDetail.minicpm5PredictorFailedTapToRetry: "下载失败，点此重试",
-        L.ModelDetail.minicpm5RowPredictor: "专家预测器（可选）",
         L.ModelDetail.v47RowExperts:     "专家分片（40 个）",
         L.ModelDetail.mainButtonDownloadingFormat: "下载中 %d%%",
         L.ModelDetail.mainButtonUseThis:          "使用该模型",

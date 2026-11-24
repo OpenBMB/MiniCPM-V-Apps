@@ -150,12 +150,9 @@ import llama
                 r.append(Row(title: L.ModelDetail.v47RowVisionTower.loc, files: [mmproj]))
             }
         case .minicpm5MoE:
-            // downloadFiles 的顺序：[主模型, 预测器]
+            // 只有一个文件：专家和训练版预测头都内联在里面。
             if let model = files.first {
                 r.append(Row(title: L.ModelDetail.v47RowMainModel.loc, files: [model]))
-            }
-            if files.count > 1 {
-                r.append(Row(title: L.ModelDetail.minicpm5RowPredictor.loc, files: [files[1]]))
             }
         }
         rows = r
@@ -380,20 +377,8 @@ import llama
         let done = row.files.filter { downloadManager.isFileDownloaded($0) }.count
         if done == row.files.count { return L.Download.statusDownloaded.loc }
         let active = row.files.contains { downloadManager.fileStatus($0) == "failed" }
-        if active {
-            // 预测器是可选文件：失败不影响使用，提示可以点这一行重试。
-            if case .minicpm5MoE = variant, row.title == L.ModelDetail.minicpm5RowPredictor.loc {
-                return L.ModelDetail.minicpm5PredictorFailedTapToRetry.loc
-            }
-            return L.Download.statusFailed.loc
-        }
-        if done == 0 {
-            if case .minicpm5MoE = variant, row.title == L.ModelDetail.minicpm5RowPredictor.loc,
-               !downloadManager.hasAnyDownloadActive() {
-                return L.ModelDetail.minicpm5PredictorTapToDownload.loc
-            }
-            return L.Download.statusNotDownloaded.loc
-        }
+        if active { return L.Download.statusFailed.loc }
+        if done == 0 { return L.Download.statusNotDownloaded.loc }
         return String(format: "%@ %d/%d", L.Download.statusDownloading.loc, done, row.files.count)
     }
 }

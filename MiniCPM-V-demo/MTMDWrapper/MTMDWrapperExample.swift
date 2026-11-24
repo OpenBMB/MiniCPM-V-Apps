@@ -280,6 +280,8 @@ public class MTMDWrapperExample: ObservableObject {
                                   draftModelPath: String = "",
                                   specDraftNMax: Int = 0,
                                   lookaheadDepthOverride: Int? = nil,
+                                  moeExpertPredictor: Bool = false,
+                                  modelVersion: Int = 0,
                                   sampling: (temperature: Float, topP: Float, minP: Float, repeatPenalty: Float)? = nil) async {
         do {
             let tier        = MBDeviceMemoryProbe.currentTier
@@ -308,7 +310,12 @@ public class MTMDWrapperExample: ObservableObject {
                 // LRU）+ 预读暂存区 K 个（每步重填，不淘汰缓存）。覆盖是并集。
                 // 见 llama-moe-slot.cpp 的 install_prefetch_into_window。
                 moeLookaheadPrefetchDepth: moeSlotBank > 0 ? (lookaheadDepthOverride ?? MiniCPMV47Const.lookaheadPrefetchDepth()) : 0,
-                moePrewarmLevel: moeSlotBank > 0 ? MiniCPMV47Const.prewarmLevel() : 0,
+                // 预测头内联在模型文件里：没有单独的文件，只有开/关。
+                moeExpertPredictor: moeSlotBank > 0 && moeExpertPredictor,
+                modelVersion: modelVersion,
+                // 预热门控表是 qwen35moe（V4.7）的专家 id，别的模型不传（bridge 还有一道兜底）。
+                moePrewarmLevel: (moeSlotBank > 0 && (modelVersion == 0 || modelVersion == 47))
+                    ? MiniCPMV47Const.prewarmLevel() : 0,
                 moePrewarmTableId: moeSlotBank > 0 ? MiniCPMV47Const.prewarmTableId() : 0,
                 draftModelPath: draftModelPath,
                 specDraftNMax: draftModelPath.isEmpty ? 0 : specDraftNMax

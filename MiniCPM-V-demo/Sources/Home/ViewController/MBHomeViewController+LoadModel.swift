@@ -183,20 +183,10 @@ extension MBHomeViewController {
                 } else if selectedModelType == .V5_15B_A2_5B {
                     // MiniCPM5-15B-A2.5B：bank / 窗口 c / 预读深度用 MiniCPM5_15B_A2_5BConst 自己的默认值，
                     // 只有 n_ubatch 沿用 V4.7 的设置；窗口预算按这份文件自己的 les.moe.layout 算。
-                    let artifacts = MiniCPM5_15B_A2_5BConst.resolveArtifacts(in: documentsDirectory)
-                    // 训练版 predictor：引擎在第一次建图时读 LLAMA_MOE_PREDICTOR（只有 minicpm5 读它）。
-                    // 每次显式写或清，避免同进程里上一次加载留下的值。`-moePredictor` 启动参数
-                    // 在桥接层里会覆盖这里的值。
                     let mode = MiniCPM5_15B_A2_5BConst.inferenceMode()
-                    // predictor 只在 slot 方式下有用（它决定预读哪些专家）。
-                    let predictor = (mode == .slot && MiniCPM5_15B_A2_5BConst.predictorEnabled()) ? artifacts?.predictorURL : nil
-                    if let predictor {
-                        setenv("LLAMA_MOE_PREDICTOR", predictor.path, 1)
-                    } else {
-                        unsetenv("LLAMA_MOE_PREDICTOR")
-                    }
-                    print("MTMDWrapperExample: MiniCPM5-15B-A2.5B mode=\(mode.rawValue) predictor = \(predictor?.lastPathComponent ?? "(off)")"
-                          + " switch=\(MiniCPM5_15B_A2_5BConst.predictorEnabled())")
+                    // 预测头内联在主模型里，这里只决定用不用它；只在 slot 方式下有意义（它决定预读哪些专家）。
+                    let usePredictor = mode == .slot && MiniCPM5_15B_A2_5BConst.predictorEnabled()
+                    print("MTMDWrapperExample: MiniCPM5-15B-A2.5B mode=\(mode.rawValue) predictor=\(usePredictor)")
                     // 自带默认配置，不读 V4.7 的设置（也就不受它的会话值 / 安全网回退影响）。
                     let depth = MiniCPM5_15B_A2_5BConst.lookaheadDepth()
                     if mode == .mmap {
@@ -205,6 +195,7 @@ extension MBHomeViewController {
                             modelPath: modelURL.path,
                             nCtx: MiniCPM5_15B_A2_5BConst.defaultNCtx,
                             nUbatchOverride: MiniCPMV47Const.nUbatch(),
+                            modelVersion: 5,
                             sampling: MiniCPM5_15B_A2_5BConst.sampling)
                     } else {
                         await self.mtmdWrapperExample?.initializeTextOnly(
@@ -218,6 +209,8 @@ extension MBHomeViewController {
                                 reserveMiBOverride: MiniCPM5_15B_A2_5BConst.windowReserveMiB),
                             nUbatchOverride: MiniCPMV47Const.nUbatch(),
                             lookaheadDepthOverride: depth,
+                            moeExpertPredictor: usePredictor,
+                            modelVersion: 5,
                             sampling: MiniCPM5_15B_A2_5BConst.sampling
                         )
                     }

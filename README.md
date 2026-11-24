@@ -318,15 +318,16 @@ MiniCPM5-15B-A2.5B is a text-only thinking MoE model (15B total / 2.5B active, 1
 
 #### Download
 
-* HuggingFace: [openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
-* ModelScope: [OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
+* HuggingFace: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
+* ModelScope: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://modelscope.cn/models/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
 
-The app downloads both files itself (Settings → MiniCPM5-15B-A2.5B → **Download All**). To copy them in by hand, put them under `Documents/MiniCPM5-15B-A2.5B/`:
+The app downloads the single file itself (Settings → MiniCPM5-15B-A2.5B → **Download All**). To copy it in by hand, put it under `Documents/MiniCPM5-15B-A2.5B/`:
 
 | File | Size | Notes |
 | --- | --- | --- |
-| `MiniCPM5-15B-A2.5B-Q3_gud-LES.gguf` | ~6.8 GB | Main model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. Standard `llama.cpp` cannot load this layout. |
-| `MiniCPM5-15B-A2.5B-predictor.gguf` | ~71 MB | Expert predictor, optional. Trained on the same checkpoint. |
+| `LCO-MiniCPM5-15B-A2.5B-Q3_gud.gguf` | ~6.8 GB | The whole model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. It also carries the trained expert predictor as resident tensors, so there is no second file. Standard `llama.cpp` cannot load this layout. |
+
+The `LCO-` prefix marks our own repack: the weights are the upstream BF16 checkpoint quantised to Q3_gud (Q3_K routed experts, otherwise the Q4_K_M recipe) and then repacked expert-major. The packing moves bytes without re-quantising, and `convert_les_gguf.py verify` proves it: every resident tensor and every expert region is byte-identical to the source.
 
 #### Inference modes
 
@@ -339,7 +340,9 @@ Measured with 128-token generations (top-k 16, Q3_gud): about 30 t/s (memory sav
 
 #### Expert predictor
 
-In memory-saver mode the engine prefetches the experts it expects the next layer to use. With the predictor file present (and the **Expert predictor** switch on) it uses the trained predictor, which has a higher hit rate; without it, it falls back to the model's own next-layer router. The predictor only changes *which* experts are prefetched — the output is identical either way. The settings page shows when the predictor file is missing, and the model page can download it on its own.
+In memory-saver mode the engine prefetches the experts it expects the next layer to use. The predictor is trained on the same checkpoint as the model and ships **inside the same GGUF file** (resident `ffn_gate_inp_pred` / `_prev` tensors, about 71 MB of the 6.8 GB), so there is nothing extra to download. With the **Expert predictor** switch on it uses that trained head; with the switch off, or with a file that carries none, it falls back to the model's own next-layer router. The predictor only changes *which* experts are prefetched — the output is identical either way.
+
+The layout is part of LES, so a file with the predictor is still one file: `convert_les_gguf.py attach` can swap the head in later without re-packing the multi-GB expert region.
 
 ### 2.8 VoxCPM2 GGUF Files (text-to-speech)
 

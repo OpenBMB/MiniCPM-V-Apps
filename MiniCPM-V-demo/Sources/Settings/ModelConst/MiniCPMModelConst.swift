@@ -1257,13 +1257,12 @@ struct MiniCPMV47Const {
 /// Q4_K_M（一半层的 attn_v / ffn_down_shexp 为 Q6_K，output Q6_K）。gguf 头里的
 /// `general.file_type` 写的是 Q4_K_M，分不出这一点，所以精度写在文件名里。
 ///
-/// 专家预测器（predictor）是同一个仓库里的单独小文件，在同一个 checkpoint 上训练。
-/// 有它时 slot 方式的预读用它来猜下一层的专家，没有时退回 LES 的「下一层 router」。
-/// 它只影响预读哪些专家，不改变输出。
+/// 专家预测器（predictor）已经**打包进主模型文件**（`ffn_gate_inp_pred` / `_prev` 常驻张量，
+/// 见 les-gguf-format.md 的 "Optional: trained expert predictor"），所以下载和磁盘上只有一个
+/// 文件。它只影响预读哪些专家，不改变输出；文件里没有时引擎会退回每层自己的 router。
 struct MiniCPM5_15B_A2_5BConst {
     static let userDefaultsKey = "MiniCPM5_15B_A2_5B"
     static let displayedName = "MiniCPM5-15B-A2.5B"
-    /// 各精度共用一个目录：predictor 只有一份。
     static let documentsDirName = "MiniCPM5-15B-A2.5B"
 
     // ── 精度 ──────────────────────────────────────────────────────────────────
@@ -1281,15 +1280,24 @@ struct MiniCPM5_15B_A2_5BConst {
         }
         /// 设置列表 / 首页标题里的名字。
         var displayedName: String { "\(MiniCPM5_15B_A2_5BConst.displayedName) \(label)" }
-        var modelFileName: String { "MiniCPM5-15B-A2.5B-\(label)-LES.gguf" }
+        var modelFileName: String { "LCO-MiniCPM5-15B-A2.5B-\(label).gguf" }
         var modelBytes: Int64 {
             switch self {
-            case .q3gud: return 6_748_827_648
+            case .q3gud: return 6_819_614_720
             }
         }
-        /// 每个精度一个仓库，仓库里同时有主模型和 predictor，文件平铺在根目录。
-        var hfBase: String { "https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-\(label)-GGUF/resolve/main" }
-        var msBase: String { "https://www.modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-\(label)-GGUF/resolve/master" }
+        /// LFS object id from the Hub. The download manager has no hash step yet, so this is
+        /// documentation: it is the `SHA256SUMS` value of the released file (checked by hand after
+        /// every upload). Add it to `ModelDownloadFile` when that grows a hash check.
+        var modelSha256: String {
+            switch self {
+            case .q3gud: return "bb7b2ece20ec2372898214eaaf86915ff656b2b46e54afc3ea6b3948a3d86f03"
+            }
+        }
+        /// Our own repack repository (one per precision). The expert predictor is packed into the
+        /// model file itself, so this repo holds exactly one file.
+        var hfBase: String { "https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/main" }
+        var msBase: String { "https://www.modelscope.cn/models/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/master" }
     }
 
     static let precisionDefaultsKey = "minicpm5_15b_a2_5b_precision"
@@ -1302,17 +1310,11 @@ struct MiniCPM5_15B_A2_5BConst {
     }
     static var currentDisplayedName: String { selectedPrecision().displayedName }
 
-    /// predictor 在 checkpoint 上训练，和量化精度无关，各精度共用。按优先级排列：找到的第一个生效。
-    static let predictorFileNames = ["MiniCPM5-15B-A2.5B-predictor.gguf"]
-    static let predictorBytes: Int64 = 70_802_272
-
-    /// 主模型 + predictor 一起下载。只有主模型也能用（predictor 缺失时预读退回 LES）。
+    /// 只有主模型一个文件：预测头已在里面。
     /// 字节数用于下载进度和判断下载残片；换文件时要一起改。
     static func downloadFiles(for p: Precision) -> [ModelDownloadFile] {
         [
             ModelDownloadFile(remotePath: p.modelFileName, localName: p.modelFileName, bytes: p.modelBytes),
-            ModelDownloadFile(remotePath: predictorFileNames[0], localName: predictorFileNames[0],
-                              bytes: predictorBytes),
         ]
     }
     /// 上下文窗口。KV cache 按 n_ctx 一次性分配：28 层 × 2 个 KV head × 128 维 × K/V × F16
@@ -1391,8 +1393,9 @@ struct MiniCPM5_15B_A2_5BConst {
     }
     static func slotBank() -> Int { max(16, intArg("-moeSlotBank") ?? defaultSlotBank) }
 
-    /// 设置页的 predictor 开关。默认开；关掉或没有 predictor 文件时 lookahead 用 LES。
-    /// 改了要重载模型才生效（引擎在第一次建图时读 LLAMA_MOE_PREDICTOR）。
+    /// 设置页的 predictor 开关。默认开；关掉时预读退回每层自己的 router。
+    /// 预测头就在主模型文件里，所以这里只是「用不用」，不涉及任何额外文件。
+    /// 改了要重载模型才生效（引擎在模型加载时决定，见 `moe_expert_predictor`）。
     static let predictorEnabledDefaultsKey = "minicpm5_15b_a2_5b_predictor_enabled"
     static func predictorEnabled() -> Bool {
         UserDefaults.standard.object(forKey: predictorEnabledDefaultsKey) as? Bool ?? true
@@ -1403,11 +1406,9 @@ struct MiniCPM5_15B_A2_5BConst {
 
     struct Artifacts {
         let modelURL: URL
-        /// nil = 没有 predictor 文件，lookahead 用 LES。
-        let predictorURL: URL?
     }
 
-    /// 找指定精度（默认当前选中的精度）的主模型；predictor 各精度共用。
+    /// 找指定精度（默认当前选中的精度）的主模型。
     /// 主模型的完整性校验，做法同 `MiniCPMV47Const.modelProblems`：header 能解析出 `les.moe.layout`，
     /// 且大小不小于发版文件（截断的尾部正好是专家区，只看 header 发现不了）。下载完成后和加载前各调一次。
     static func modelProblems(precision: Precision = selectedPrecision(), at modelURL: URL) -> [MiniCPMV47Const.ModelProblem] {
@@ -1430,12 +1431,8 @@ struct MiniCPM5_15B_A2_5BConst {
     static func resolveArtifacts(precision: Precision = selectedPrecision(),
                                  in documentsDirectory: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]) -> Artifacts? {
         let dir = documentsDirectory.appendingPathComponent(documentsDirName)
-        let fm = FileManager.default
         let model = dir.appendingPathComponent(precision.modelFileName)
-        guard fm.fileExists(atPath: model.path) else { return nil }
-        let predictor = predictorFileNames
-            .map { dir.appendingPathComponent($0) }
-            .first { fm.fileExists(atPath: $0.path) }
-        return Artifacts(modelURL: model, predictorURL: predictor)
+        guard FileManager.default.fileExists(atPath: model.path) else { return nil }
+        return Artifacts(modelURL: model)
     }
 }

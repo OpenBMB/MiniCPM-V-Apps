@@ -431,8 +431,7 @@ final class MBV47ModelDownloadManager: NSObject {
     /// 全部文件到齐后做一次整体校验：header 能解析出 `les.moe.layout`，且总字节数
     /// 不少于清单里的期望值（截断的尾部正好是专家区，只看 header 发现不了）。
     private func finishIfComplete() {
-        // MiniCPM5-15B-A2.5B：只有主模型是必需的。预测器没下下来不算失败（详情页那一行会显示
-        // 「下载失败，点此重试」），主模型要过和 V4.7 一样的完整性校验。
+        // MiniCPM5-15B-A2.5B：一个文件（专家 + 预测头都内联），但同样要过 header + 大小校验。
         if case .minicpm5MoE(let p) = variant, let main = variant.files.first {
             guard isFileDownloaded(main) else {
                 completionHandler?(variant.displayedName, false)

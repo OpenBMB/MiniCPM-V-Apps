@@ -662,22 +662,45 @@ static void apply_moe_nocache_env(const char * where) {
     }
 }
 
-// `-moePredictor <file>`：训练版专家预测器（引擎侧 LLAMA_MOE_PREDICTOR，只在 lookahead 开启时
-// 生效，只改变预读哪些专家，不改变输出）。相对路径按 App 的 Documents 解析。
-// 没给启动参数时不碰调用方已设的环境变量。
-static void apply_moe_predictor_env(const char * where) {
-    NSArray<NSString *> * args = [[NSProcessInfo processInfo] arguments];
-    NSUInteger i = [args indexOfObject:@"-moePredictor"];
-    if (i == NSNotFound || i + 1 >= args.count) {
-        return;
+// `-moePredictor`：打开模型文件里自带的训练版专家预测器（引擎的
+// `llama_model_params.moe_expert_predictor`）。它只在 lookahead 开启时有用，只改变预读哪些
+// 专家，不改变输出。预测头内联在 LES 文件里，运行时不再读单独的 gguf。
+static bool apply_moe_predictor_arg(void) {
+    return [[[NSProcessInfo processInfo] arguments] containsObject:@"-moePredictor"];
+}
+
+// 是否让引擎用文件里的预测头。启动参数 `-moePredictor` 一票赞成（基准用）；否则看调用方
+// 传的 params.moe_expert_predictor。
+static bool moe_expert_predictor_requested(const mb_mtmd_params & params) {
+    return params.moe_expert_predictor || apply_moe_predictor_arg();
+}
+
+// 载入模型；开了预测头但文件里没有时，关掉它重试一次。
+//
+// 引擎在文件缺 `ffn_gate_inp_pred` 时直接抛异常（“moe_expert_predictor is on but the model
+// file has no …”），而预测头只是预读优化，不该让一个缺它的文件整份加载失败。所以这里退化：
+// 记一行日志，改用每层自己的 router。
+static llama_model * load_model_with_predictor_fallback(
+        const std::string & path, llama_model_params mparams, bool & predictor_dropped) {
+    predictor_dropped = false;
+    if (!mparams.moe_expert_predictor) {
+        return llama_model_load_from_file(path.c_str(), mparams);
     }
-    NSString * path = args[i + 1];
-    if (![path isAbsolutePath]) {
-        NSString * docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
-        path = [docs stringByAppendingPathComponent:path];
+    try {
+        if (llama_model * m = llama_model_load_from_file(path.c_str(), mparams)) {
+            return m;
+        }
+    } catch (const std::exception & e) {
+        fprintf(stderr, "[MBMtmd] predictor: %s -- retrying without it\n", e.what());
     }
-    setenv("LLAMA_MOE_PREDICTOR", [path UTF8String], 1);
-    fprintf(stderr, "[MBMtmd] %s LLAMA_MOE_PREDICTOR=%s\n", where, [path UTF8String]);
+    mparams.moe_expert_predictor = false;
+    predictor_dropped = true;
+    try {
+        return llama_model_load_from_file(path.c_str(), mparams);
+    } catch (const std::exception & e) {
+        g_last_llama_error = std::string("model load: ") + e.what();
+        return nullptr;
+    }
 }
 
 // GGUF 里的 `<arch>.expert_used_count`（checkpoint 的 top-k）；不是 MoE 时返回 0。
@@ -1577,8 +1600,9 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.image_max_tokens      = -1;
     p.image_max_slice_nums  = -1;
     p.moe_slot_bank         = 0;
-    p.moe_slot_bank         = 0;
     p.moe_lookahead_prefetch_depth        = 0;
+    p.moe_expert_predictor  = false;   // 训练版预测头在模型文件里，由 App 按开关传
+    p.model_version         = 0;       // 0 = 未知；init 再按 slot bank 兜底（见 mb_mtmd_init）
     p.moe_prewarm_level     = 0;       // 0 = 预热关闭（App 会按设置传 8/16/32/48/64/96）
     p.moe_prewarm_table_id  = 0;       // 0 = 默认加权表；1..8 = K=4 集群表
     p.spec_draft_n_max      = 0;       // 0 = DSpark 投机关闭（默认行为与旧版一致）
@@ -1910,7 +1934,10 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
     // std::make_unique is C++14; some Xcode build configs in this project use
     // gnu++0x (= C++11) for ObjC++ targets, so we stick with the C++11 form.
     std::unique_ptr<mb_mtmd_context> ctx(new mb_mtmd_context());
-    if (params.moe_slot_bank > 0) {
+    // 调用方知道的型号先落地；不知道时按「有 slot bank ⇒ V4.7 MoE」兜底（本字段出现之前
+    // 的行为）。MiniCPM5-15B 必须自己报 5，否则会走到 V4.7 的「强制不思考」模板分支。
+    ctx->model_version = params.model_version;
+    if (params.moe_slot_bank > 0 && ctx->model_version == 0) {
         ctx->model_version = 47;
     }
 
@@ -1953,18 +1980,23 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         apply_moe_dummy_read_env("before model load");
         apply_moe_read_delay_env("before model load");
         apply_moe_nocache_env("before model load");
-        apply_moe_predictor_env("before model load");
+        mparams.moe_expert_predictor = moe_expert_predictor_requested(params);
         ctx->moe_prewarm_level = apply_moe_prewarm_env(
             params.moe_prewarm_level, params.moe_prewarm_table_id,
             params.moe_decode_window, "before model load");
-        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d\n",
-                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth));
+        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d predictor=%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
+                (int) mparams.moe_expert_predictor);
     }
 
-    ctx->model.reset(llama_model_load_from_file(model_path, mparams));
+    bool predictor_dropped = false;
+    ctx->model.reset(load_model_with_predictor_fallback(model_path, mparams, predictor_dropped));
     if (!ctx->model) {
         set_error(ctx.get(), std::string("Failed to load model from: ") + model_path);
         return nullptr;
+    }
+    if (predictor_dropped) {
+        fprintf(stderr, "[MBMtmd] predictor: model file carries none, prefetch falls back to the router\n");
     }
     mb_init_moe_k_from_model(ctx.get(), "after model load");
     mb_disable_prewarm_unless_qwen35moe(ctx.get(), "after model load");
@@ -2177,10 +2209,13 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
     // 基准用这条路径（不需要 mmproj / 视觉塔），同时省下 ~1GB 常驻。
     int slot_bank = 0;
     if (params.moe_slot_bank > 0) {
-        ctx->model_version = 47;
+        // 纯文本 + slot bank 不等于 V4.7：MiniCPM5-15B 也走这条路，而它的模板由
+        // `text_only` 分支处理。只有调用方没说型号时才按 V4.7 兜底。
+        if (ctx->model_version == 0) {
+            ctx->model_version = 47;
+        }
         ctx->moe_enabled   = true;
         slot_bank = params.moe_slot_bank;
-        mparams.moe_slot_bank = slot_bank;
         mparams.moe_slot_bank    = slot_bank;
         mparams.use_mmap         = moe_use_mmap_launch_arg();  // 默认关，见上面说明
         apply_lookahead_prefetch_env(params.moe_lookahead_prefetch_depth, "before model load (text-only)");
@@ -2194,18 +2229,23 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         apply_moe_dummy_read_env("before model load (text-only)");
         apply_moe_read_delay_env("before model load (text-only)");
         apply_moe_nocache_env("before model load (text-only)");
-        apply_moe_predictor_env("before model load (text-only)");
+        mparams.moe_expert_predictor = moe_expert_predictor_requested(params);
         ctx->moe_prewarm_level = apply_moe_prewarm_env(
             params.moe_prewarm_level, params.moe_prewarm_table_id,
             params.moe_decode_window, "before model load (text-only)");
-        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d\n",
-                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth));
+        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d predictor=%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
+                (int) mparams.moe_expert_predictor);
     }
 
-    ctx->model.reset(llama_model_load_from_file(model_path, mparams));
+    bool predictor_dropped = false;
+    ctx->model.reset(load_model_with_predictor_fallback(model_path, mparams, predictor_dropped));
     if (!ctx->model) {
         set_error(ctx.get(), std::string("Failed to load model from: ") + model_path);
         return nullptr;
+    }
+    if (predictor_dropped) {
+        fprintf(stderr, "[MBMtmd] predictor: model file carries none, prefetch falls back to the router\n");
     }
     mb_init_moe_k_from_model(ctx.get(), "after model load (text-only)");
     mb_disable_prewarm_unless_qwen35moe(ctx.get(), "after model load (text-only)");

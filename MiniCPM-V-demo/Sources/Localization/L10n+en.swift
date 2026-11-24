@@ -64,7 +64,6 @@ extension LocalizationManager {
         L.Settings.cacheWindowRevertedTitle:          "Expert cache reverted",
         L.Settings.cacheWindowRevertedBody:           "The last launch with c=%@ did not finish loading, so it was reverted to Auto.\nTry a smaller value.",
         L.Settings.rowSlotBank:                       "Expert slots (bank size)",
-        L.Settings.minicpm5PredictorMissing: "Predictor file not found; prefetch uses the model's own router",
         L.Settings.minicpm5RowPredictor: "Expert predictor",
         L.Settings.minicpm5InferenceModeMessage: "Memory saver: experts are read from flash on demand. The app keeps about 4 GB; speed depends on the hit rate.\nFastest: the whole model is mapped into memory and managed by the system; memory use varies with the phone's state. Needs at least about %@ of free memory; otherwise the system closes the app.",
         L.Settings.minicpm5ModeMmap: "Fastest (map the whole model)",
@@ -95,7 +94,6 @@ extension LocalizationManager {
         L.Settings.streamingMarkdownHint:             "When on, Markdown styling is applied while the model is still generating. When off, the text stays plain until the whole answer is finished and is rendered once. Off is steadier (text won't shift as styles re-layout mid-stream).",
 
         L.Settings.statusInUse:          "In Use",
-        L.Settings.statusReadyNoPredictor: "Ready (no predictor)",
         L.Settings.statusPendingLoad: "Pending load",
 
         L.Settings.alertNoWrapper:       "mtmdWrapperExample is not set; cannot initialise the download manager.",
@@ -123,9 +121,6 @@ extension LocalizationManager {
         L.ModelDetail.mainButtonOneTapDownloadV471B:  "Download All (~1.8 GB)",
         L.ModelDetail.v47RowMainModel:   "Main model",
         L.ModelDetail.v47RowVisionTower: "Vision tower (mmproj)",
-        L.ModelDetail.minicpm5PredictorTapToDownload: "Not downloaded, tap to download",
-        L.ModelDetail.minicpm5PredictorFailedTapToRetry: "Download failed, tap to retry",
-        L.ModelDetail.minicpm5RowPredictor: "Expert predictor (optional)",
         L.ModelDetail.v47RowExperts:     "Expert shards (40)",
         L.ModelDetail.mainButtonDownloadingFormat: "Downloading %d%%",
         L.ModelDetail.mainButtonUseThis:          "Use This Model",
