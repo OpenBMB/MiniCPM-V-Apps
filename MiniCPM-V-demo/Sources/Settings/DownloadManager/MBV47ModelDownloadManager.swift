@@ -12,15 +12,19 @@
 import Foundation
 import UIKit
 
-/// 4.7 的两个变体。常量取值集中在 `MiniCPMV47Const` / `MiniCPMV47_1BConst`。
+/// 走这套多文件下载的模型。常量取值集中在 `MiniCPMV47Const` / `MiniCPMV47_1BConst` /
+/// `MiniCPM5_15B_A2_5BConst`。
 enum MBV47Variant {
     case moe
     case oneB
+    /// MiniCPM5-15B-A2.5B 的一个精度：主模型（LES 单文件）+ 专家预测器
+    case minicpm5MoE(MiniCPM5_15B_A2_5BConst.Precision)
 
     var displayedName: String {
         switch self {
         case .moe:  return MiniCPMV47Const.displayedName
         case .oneB: return MiniCPMV47_1BConst.displayedName
+        case .minicpm5MoE(let p): return p.displayedName
         }
     }
 
@@ -28,6 +32,7 @@ enum MBV47Variant {
         switch self {
         case .moe:  return MiniCPMV47Const.documentsDirName
         case .oneB: return MiniCPMV47_1BConst.documentsDirName
+        case .minicpm5MoE: return MiniCPM5_15B_A2_5BConst.documentsDirName
         }
     }
 
@@ -35,6 +40,7 @@ enum MBV47Variant {
         switch self {
         case .moe:  return MiniCPMV47Const.userDefaultsKey
         case .oneB: return MiniCPMV47_1BConst.userDefaultsKey
+        case .minicpm5MoE: return MiniCPM5_15B_A2_5BConst.userDefaultsKey
         }
     }
 
@@ -42,6 +48,7 @@ enum MBV47Variant {
         switch self {
         case .moe:  return MiniCPMV47Const.hfBase
         case .oneB: return MiniCPMV47_1BConst.hfBase
+        case .minicpm5MoE(let p): return p.hfBase
         }
     }
 
@@ -49,6 +56,7 @@ enum MBV47Variant {
         switch self {
         case .moe:  return MiniCPMV47Const.msBase
         case .oneB: return MiniCPMV47_1BConst.msBase
+        case .minicpm5MoE(let p): return p.msBase
         }
     }
 
@@ -56,6 +64,7 @@ enum MBV47Variant {
         switch self {
         case .moe:  return MiniCPMV47Const.downloadFiles
         case .oneB: return MiniCPMV47_1BConst.downloadFiles
+        case .minicpm5MoE(let p): return MiniCPM5_15B_A2_5BConst.downloadFiles(for: p)
         }
     }
 
@@ -63,6 +72,7 @@ enum MBV47Variant {
         switch self {
         case .moe:  return .V47MoE
         case .oneB: return .V47_1B
+        case .minicpm5MoE: return .V5_15B_A2_5B
         }
     }
 }
@@ -71,6 +81,12 @@ final class MBV47ModelDownloadManager: NSObject {
 
     static let moe = MBV47ModelDownloadManager(variant: .moe)
     static let oneB = MBV47ModelDownloadManager(variant: .oneB)
+    static let minicpm5Q3gud = MBV47ModelDownloadManager(variant: .minicpm5MoE(.q3gud))
+    static func minicpm5(_ p: MiniCPM5_15B_A2_5BConst.Precision) -> MBV47ModelDownloadManager {
+        switch p {
+        case .q3gud: return minicpm5Q3gud
+        }
+    }
 
     let variant: MBV47Variant
 
@@ -415,6 +431,19 @@ final class MBV47ModelDownloadManager: NSObject {
     /// 全部文件到齐后做一次整体校验：header 能解析出 `les.moe.layout`，且总字节数
     /// 不少于清单里的期望值（截断的尾部正好是专家区，只看 header 发现不了）。
     private func finishIfComplete() {
+        // MiniCPM5-15B-A2.5B：一个文件（专家 + 预测头都内联），但同样要过 header + 大小校验。
+        if case .minicpm5MoE(let p) = variant, let main = variant.files.first {
+            guard isFileDownloaded(main) else {
+                completionHandler?(variant.displayedName, false)
+                return
+            }
+            let problems = MiniCPM5_15B_A2_5BConst.modelProblems(precision: p, at: localURL(for: main))
+            if !problems.isEmpty {
+                debugLog("-->> MiniCPM5 模型校验失败：\(problems.map { $0.text }.joined(separator: "; "))")
+            }
+            completionHandler?(variant.displayedName, problems.isEmpty)
+            return
+        }
         guard allFilesDownloaded() else {
             completionHandler?(variant.displayedName, false)
             return

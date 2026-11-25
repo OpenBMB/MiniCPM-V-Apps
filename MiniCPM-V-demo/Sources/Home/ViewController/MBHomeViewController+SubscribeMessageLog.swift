@@ -82,6 +82,16 @@ extension MBHomeViewController {
                 // 输出完成
                 if !log.isEmpty {
                     self?.thinking = false
+                    // 「最快」模式已经跑出内容：清掉安全网标记（其它模型上没有 pending，空转）。
+                    //
+                    // 用「已有输出」而不是「整轮完成」作判据是够的：整份 mmap 被 jetsam 杀掉
+                    // 几乎都发生在第一次 prefill 读权重时，那一刻还没有任何输出，pending 会留着，
+                    // 下次启动照常降级。只有「先出了几个 token 再崩」这种情况会漏，属于少数。
+                    MiniCPM5_15B_A2_5BConst.markMmapLoadOk(reason: "first output")
+                    // 上下文窗口写满导致的停止：提示新建对话（不写进回答正文）
+                    if self?.mtmdWrapperExample?.isContextFull == true {
+                        self?.showErrorTips(L.Home.contextFull.loc, delay: 4)
+                    }
                 }
                 
                 // 同步给 live stream vc

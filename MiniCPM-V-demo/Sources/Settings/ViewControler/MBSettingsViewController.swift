@@ -74,6 +74,7 @@ import llama
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         showCacheWindowRevertNoticeIfNeeded()
+        showMmapRevertNoticeIfNeeded()
     }
 
     /// 若上次启动因缓存设得过大而回退，这里告知用户 —— 回退是静默发生的。
@@ -82,6 +83,17 @@ import llama
         let alert = UIAlertController(
             title: L.Settings.cacheWindowRevertedTitle.loc,
             message: String(format: L.Settings.cacheWindowRevertedBody.loc, "\(attempted)"),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L.Common.ok.loc, style: .default))
+        present(alert, animated: true)
+    }
+
+    /// 15B 的「最快」模式没起来时也是静默降级，同样要告诉用户，否则只会觉得「变慢了」。
+    private func showMmapRevertNoticeIfNeeded() {
+        guard MiniCPM5_15B_A2_5BConst.consumeMmapRevertNotice() else { return }
+        let alert = UIAlertController(
+            title: L.Settings.minicpm5MmapRevertedTitle.loc,
+            message: L.Settings.minicpm5MmapRevertedBody.loc,
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: L.Common.ok.loc, style: .default))
         present(alert, animated: true)
@@ -333,8 +345,58 @@ extension MBSettingsViewController: UITableViewDelegate {
             } else if title == MiniCPMV47_1BConst.displayedName {
                 let vc = MBV47ModelDetailViewController(oneBWith: mtmdWrapperExample)
                 self.navigationController?.pushViewController(vc, animated: true)
+            } else if let p = MiniCPM5_15B_A2_5BConst.Precision.allCases.first(where: {
+                $0.displayedName == title && $0.specTag == (model.detailText ?? "")
+            }) {
+                // 与 4.7 共用多文件下载/详情页：主模型 + 专家预测器，每个精度一页。
+                // 名字不含精度，所以连同右侧小字一起匹配，将来加精度不会串页。
+                let vc = MBV47ModelDetailViewController(minicpm5MoEWith: mtmdWrapperExample, precision: p)
+                self.navigationController?.pushViewController(vc, animated: true)
             }
         }
+    }
+
+    private static var rowInferenceMode: String { L.Settings.minicpm5RowInferenceMode.loc }
+
+    /// MiniCPM5-15B-A2.5B 的推理方式：同一个模型文件，slot（内存固定）或整个文件 mmap（最快）。
+    private func presentInferenceModePicker(at indexPath: IndexPath) {
+        let current = MiniCPM5_15B_A2_5BConst.inferenceMode()
+        let sheet = UIAlertController(
+            title: Self.rowInferenceMode,
+            message: L.Settings.minicpm5InferenceModeMessage.loc,
+            preferredStyle: .actionSheet)
+        let apply: (MiniCPM5_15B_A2_5BConst.InferenceMode) -> Void = { [weak self] mode in
+            MiniCPM5_15B_A2_5BConst.setInferenceMode(mode)
+            NotificationCenter.default.post(name: .mbModelSelectionChanged, object: nil)
+            DispatchQueue.main.async { self?.loadTableViewData() }
+        }
+        let discouraged = MiniCPM5_15B_A2_5BConst.mmapDiscouraged()
+        for mode in MiniCPM5_15B_A2_5BConst.InferenceMode.allCases {
+            let notRecommended = mode == .mmap && discouraged
+            let title = mode.displayName
+                + (notRecommended ? " · " + L.Settings.minicpm5ModeNotRecommended.loc : "")
+                + (mode == current ? "  ✓" : "")
+            // 内存不够的机型上「最快」仍可选，但标红并在切换前再确认一次。
+            sheet.addAction(UIAlertAction(title: title, style: notRecommended ? .destructive : .default) { [weak self] _ in
+                guard mode != current else { return }
+                guard notRecommended, let self else { apply(mode); return }
+                let confirm = UIAlertController(title: L.Settings.minicpm5ModeNotRecommended.loc,
+                                                message: L.Settings.minicpm5MmapLowMemoryWarning.loc,
+                                                preferredStyle: .alert)
+                confirm.addAction(UIAlertAction(title: L.Common.cancel.loc, style: .cancel))
+                confirm.addAction(UIAlertAction(title: L.Settings.minicpm5MmapUseAnyway.loc, style: .destructive) { _ in
+                    apply(mode)
+                })
+                self.present(confirm, animated: true)
+            })
+        }
+        sheet.addAction(UIAlertAction(title: L.Common.cancel.loc, style: .cancel))
+        // iPad 上 actionSheet 必须挂 popover，否则直接崩。
+        if let pop = sheet.popoverPresentationController {
+            pop.sourceView = self.tableView
+            pop.sourceRect = self.tableView.rectForRow(at: indexPath)
+        }
+        present(sheet, animated: true)
     }
 
     /// 夜间模式三档选择。
@@ -414,6 +476,8 @@ extension MBSettingsViewController: UITableViewDelegate {
             presentV47SlotBankPicker()
         } else if title == L.Settings.rowAppearance.loc {
             showAppearancePicker()
+        } else if title == Self.rowInferenceMode {
+            presentInferenceModePicker(at: indexPath)
         } else if title == L.Realtime.title.loc {
             showRealtimeUnderstandingPage()
         }
@@ -729,6 +793,34 @@ extension MBSettingsViewController {
         }
 
         section.append(model26)
+
+        // MiniCPM5-15B-A2.5B：每个精度一行。名字只写模型，精度放右侧小字（同 4.7）。
+        for precision in MiniCPM5_15B_A2_5BConst.Precision.allCases {
+            let model15b = MBSettingsModel()
+            model15b.title = precision.displayedName
+            model15b.detailText = precision.specTag
+            // detailText 与 statusString 并排（精度在左、状态在右），否则状态不显示。
+            model15b.shouldShowStatusText = true
+            // 纯文本模型与 MiniCPM5-1B / 2B 用同一个图标；cpu 是视觉模型的。
+            model15b.icon = UIImage(systemName: "text.bubble")
+            model15b.accessoryIcon = UIImage(named: "setting_accessory_icon")
+            model15b.selectedIcon = UIImage(systemName: "checkmark.circle.fill")
+            let artifacts15b = MiniCPM5_15B_A2_5BConst.resolveArtifacts(precision: precision)
+            let isCurrent = currentSelectedModel == MiniCPM5_15B_A2_5BConst.userDefaultsKey
+                && MiniCPM5_15B_A2_5BConst.selectedPrecision() == precision
+            if artifacts15b != nil && isCurrent {
+                model15b.status = "selected"
+                model15b.statusString = mtmdWrapperExample?.multiModelLoadingSuccess == true
+                    ? L.Settings.statusInUse.loc : L.Settings.statusPendingLoad.loc
+            } else if artifacts15b != nil {
+                model15b.status = "none"
+                model15b.statusString = L.Download.statusDownloaded.loc
+            } else {
+                model15b.status = "none"
+                model15b.statusString = L.Download.statusNotDownloaded.loc
+            }
+            section.append(model15b)
+        }
         
         dataArray.append(section)
     }
@@ -844,6 +936,34 @@ extension MBSettingsViewController {
             slotBankModel.accessoryIcon = UIImage(named: "setting_accessory_icon")
             slotBankModel.detailText = "\(MiniCPMV47Const.slotBank())"
             section.append(slotBankModel)
+        }
+
+        // MiniCPM5-15B-A2.5B：推理方式 + （slot 方式下的）predictor 开关；slot / 窗口 / 预读用模型自带的
+        // 默认配置。两者改了都按换模型的流程重载，回首页即生效。
+        if UserDefaults.standard.string(forKey: "current_selected_model") == MiniCPM5_15B_A2_5BConst.userDefaultsKey {
+            let modeModel = MBSettingsModel()
+            modeModel.title = Self.rowInferenceMode
+            modeModel.icon = UIImage(systemName: "bolt.horizontal")
+            modeModel.accessoryIcon = UIImage(named: "setting_accessory_icon")
+            // 没设过时是自动挑的（装得下就「最快」）；标出来，免得用户以为设置被忽略。
+            modeModel.detailText = MiniCPM5_15B_A2_5BConst.inferenceMode().displayName
+                + (MiniCPM5_15B_A2_5BConst.inferenceModeIsDefault() ? " · " + L.Settings.minicpm5ModeAuto.loc : "")
+            section.append(modeModel)
+        }
+        if UserDefaults.standard.string(forKey: "current_selected_model") == MiniCPM5_15B_A2_5BConst.userDefaultsKey,
+           MiniCPM5_15B_A2_5BConst.inferenceMode() == .slot {
+            let predictorModel = MBSettingsModel()
+            predictorModel.title = L.Settings.minicpm5RowPredictor.loc
+            predictorModel.icon = UIImage(systemName: "wand.and.stars")
+            // 预测头就在主模型文件里，所以这里只有开/关；关掉时预读退回每层自己的 router。
+            predictorModel.isSwitchEnabled = true
+            predictorModel.switchIsOn = MiniCPM5_15B_A2_5BConst.predictorEnabled()
+            predictorModel.switchValueChanged = { [weak self] on in
+                MiniCPM5_15B_A2_5BConst.setPredictorEnabled(on)
+                NotificationCenter.default.post(name: .mbModelSelectionChanged, object: nil)
+                DispatchQueue.main.async { self?.loadTableViewData() }
+            }
+            section.append(predictorModel)
         }
 
         // 显示 P/D 速度：拨一下即时生效（只控制工具条上那行文字是否显示，不影响推理）。
@@ -982,6 +1102,8 @@ extension MBSettingsViewController {
             mtmdWrapperExample?.currentUsingModelType = .V47MoE
         } else if currentSelectedModel == MiniCPMV47_1BConst.userDefaultsKey {
             mtmdWrapperExample?.currentUsingModelType = .V47_1B
+        } else if currentSelectedModel == MiniCPM5_15B_A2_5BConst.userDefaultsKey {
+            mtmdWrapperExample?.currentUsingModelType = .V5_15B_A2_5B
         }
         
         // 完整重建数据源（loadTableViewData 内部 removeAll + append）

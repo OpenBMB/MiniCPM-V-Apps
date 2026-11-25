@@ -4,8 +4,8 @@
 //
 //  MiniCPM-V 4.7 详情页：下载（多文件）+ 设为当前模型。
 //
-//  一个类服务两个变体（35B-A3B MoE / 1B），由 `variant` 决定行数与文案 ——
-//  对用户就是两个独立页面（设置页点哪个模型进哪个）。
+//  一个类服务多个模型（4.7 35B-A3B MoE / 4.7 1B / MiniCPM5-15B-A2.5B 的每个精度），由 `variant`
+//  决定行数与文案 —— 对用户就是各自独立的页面（设置页点哪个模型进哪个）。
 //
 //  行按「用途」聚合，而不是一文件一行：MoE 有 43 个文件（experts 就占 41 个），
 //  每个都列出来既看不懂也没必要。
@@ -25,6 +25,7 @@ import llama
         switch variant {
         case .moe:  return .moe
         case .oneB: return .oneB
+        case .minicpm5MoE(let p): return .minicpm5(p)
         }
     }
 
@@ -71,6 +72,13 @@ import llama
 
     public init(oneBWith wrapper: MTMDWrapperExample) {
         self.variant = .oneB
+        self.mtmdWrapperExample = wrapper
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    /// MiniCPM5-15B-A2.5B 的一个精度：主模型 + 专家预测器。预测器可选：只有主模型也能用。
+    init(minicpm5MoEWith wrapper: MTMDWrapperExample, precision: MiniCPM5_15B_A2_5BConst.Precision) {
+        self.variant = .minicpm5MoE(precision)
         self.mtmdWrapperExample = wrapper
         super.init(nibName: nil, bundle: nil)
     }
@@ -140,6 +148,11 @@ import llama
             }
             if let mmproj = flat.first(where: { $0.localName.contains("mmproj") }) {
                 r.append(Row(title: L.ModelDetail.v47RowVisionTower.loc, files: [mmproj]))
+            }
+        case .minicpm5MoE:
+            // 只有一个文件：专家和训练版预测头都内联在里面。
+            if let model = files.first {
+                r.append(Row(title: L.ModelDetail.v47RowMainModel.loc, files: [model]))
             }
         }
         rows = r
@@ -223,6 +236,11 @@ import llama
         // 不要在这里调 reconcileStatusFromDisk()：那是 UI 查询，不该改下载状态。
         // （早先它会把 .failed 抹成 .notStarted，配合 pump() 形成无限重试。）
         if downloadManager.allFilesDownloaded() { return .ready }
+        // 预测器可选：主模型在（下载完或 USB 放入）就能用，缺的预测器可以在行上单独补下。
+        if case .minicpm5MoE(let p) = variant, !downloadManager.hasAnyDownloadActive(),
+           MiniCPM5_15B_A2_5BConst.resolveArtifacts(precision: p) != nil {
+            return .ready
+        }
         if downloadManager.hasAnyDownloadActive() { return .downloading }
         return .needsDownload
     }
@@ -265,10 +283,18 @@ import llama
         switch variant {
         case .moe:  return L.ModelDetail.mainButtonOneTapDownloadV47Moe.loc
         case .oneB: return L.ModelDetail.mainButtonOneTapDownloadV471B.loc
+        case .minicpm5MoE:
+            let total = variant.files.reduce(Int64(0)) { $0 + $1.bytes }
+            return String(format: L.ModelDetail.mainButtonOneTapDownloadMiniCPM5MoE.loc,
+                          ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
         }
     }
 
     private func setAsCurrentModel() {
+        if case .minicpm5MoE(let p) = variant {
+            // 各精度是同一个模型类型，靠精度区分加载哪个文件。
+            MiniCPM5_15B_A2_5BConst.setSelectedPrecision(p)
+        }
         UserDefaults.standard.setValue(variant.userDefaultsKey, forKey: "current_selected_model")
         mtmdWrapperExample?.currentUsingModelType = variant.modelType
         NotificationCenter.default.post(name: .mbModelSelectionChanged, object: nil)
@@ -374,5 +400,13 @@ extension MBV47ModelDetailViewController: UITableViewDataSource, UITableViewDele
     public func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? { nil }
     public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        // MiniCPM5：主模型已在、只缺预测器时，主按钮是「使用此模型」，点预测器这一行单独补下。
+        // downloadAll 只下还没落盘的文件。
+        if case .minicpm5MoE = variant, indexPath.row > 0, indexPath.row < rows.count,
+           !rows[indexPath.row].files.allSatisfy({ downloadManager.isFileDownloaded($0) }),
+           !downloadManager.hasAnyDownloadActive() {
+            downloadManager.downloadAll()
+            refreshVisibleRows()
+        }
     }
 }

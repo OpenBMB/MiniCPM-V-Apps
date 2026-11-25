@@ -73,6 +73,17 @@ public enum L {
         public static let cacheWindowRevertedTitle        = "settings.cacheWindow.reverted.title"
         public static let cacheWindowRevertedBody         = "settings.cacheWindow.reverted.body"
         public static let rowSlotBank                     = "settings.row.slotBank"
+        public static let minicpm5RowPredictor = "settings.row.minicpm5.predictor"
+        public static let minicpm5InferenceModeMessage = "settings.minicpm5.mode.message"
+        public static let minicpm5ModeMmap = "settings.minicpm5.mode.mmap"
+        public static let minicpm5ModeNotRecommended = "settings.minicpm5.mode.notRecommended"
+        public static let minicpm5MmapLowMemoryWarning = "settings.minicpm5.mode.mmapLowMemory"
+        public static let minicpm5MmapUseAnyway = "settings.minicpm5.mode.mmapUseAnyway"
+        public static let minicpm5ModeSlot = "settings.minicpm5.mode.slot"
+        public static let minicpm5RowInferenceMode = "settings.row.minicpm5.inferenceMode"
+        public static let minicpm5ModeAuto = "settings.minicpm5.mode.auto"
+        public static let minicpm5MmapRevertedTitle = "settings.minicpm5.mmap.reverted.title"
+        public static let minicpm5MmapRevertedBody = "settings.minicpm5.mmap.reverted.body"
         public static let slotBankTitle                   = "settings.slotBank.title"
         public static let slotBankMessage                 = "settings.slotBank.message"
         public static let slotBankHint                    = "settings.slotBank.hint"
@@ -95,6 +106,7 @@ public enum L {
         public static let streamingMarkdownHint           = "settings.streamingMarkdown.hint"
 
         public static let statusInUse        = "settings.status.inUse"
+        public static let statusPendingLoad = "settings.status.pendingLoad"
 
         // Alerts
         public static let alertNoWrapper     = "settings.alert.noWrapper"
@@ -133,6 +145,7 @@ public enum L {
         public static let mainButtonOneTapDownloadV5  = "modelDetail.mainButton.oneTap.v5"
         public static let mainButtonOneTapDownloadV526 = "modelDetail.mainButton.oneTap.v526"
         public static let mainButtonOneTapDownloadV47Moe = "modelDetail.mainButton.oneTap.v47moe"
+        public static let mainButtonOneTapDownloadMiniCPM5MoE = "modelDetail.mainButton.oneTap.minicpm5moe"
         public static let mainButtonOneTapDownloadV471B  = "modelDetail.mainButton.oneTap.v471b"
         // V4.7 detail rows
         public static let v47RowMainModel   = "modelDetail.v47.row.mainModel"
@@ -274,6 +287,7 @@ public enum L {
         // Send-button gating tips
         public static let tipEmptyInput      = "home.tip.emptyInput"
         public static let tipPleaseWait      = "home.tip.pleaseWait"
+        public static let contextFull        = "home.contextFull"
         public static let tipModelNotReady   = "home.tip.modelNotReady"
         public static let tipImageProcessing = "home.tip.imageProcessing"
         public static let tipPreviousImageProcessing = "home.tip.previousImageProcessing"

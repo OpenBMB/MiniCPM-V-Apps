@@ -105,6 +105,12 @@ extension MBHomeViewController {
                 // MiniCPM5-2B 纯文本模型（无 mmproj）
                 modelURL = documentsDirectory.appendingPathComponent(MiniCPMModelConst.modelv526_FileName)
                 selectedModelType = .V526TextModel
+            } else if lastSelectedModelString == MiniCPM5_15B_A2_5BConst.userDefaultsKey {
+                // MiniCPM5-15B-A2.5B MoE：LES 单文件（专家内联），纯文本
+                if let artifacts = MiniCPM5_15B_A2_5BConst.resolveArtifacts(in: documentsDirectory) {
+                    modelURL = artifacts.modelURL
+                    selectedModelType = .V5_15B_A2_5B
+                }
             }
             
             self.benchLog("[MOEBENCH] checkpoint=model-resolved type=\(selectedModelType) model=\(modelURL?.lastPathComponent ?? "nil") mmproj=\(mmprojURL?.lastPathComponent ?? "nil")")
@@ -150,6 +156,20 @@ extension MBHomeViewController {
                 }
             }
 
+            // MiniCPM5-15B-A2.5B：同 V4.7 的加载前校验（header + 大小），不完整的文件不交给引擎。
+            if selectedModelType == .V5_15B_A2_5B {
+                let problems = MiniCPM5_15B_A2_5BConst.modelProblems(at: modelURL)
+                if !problems.isEmpty {
+                    print("MiniCPM5_15B_A2_5BConst: 模型校验失败：" + problems.map { $0.text }.joined(separator: "; "))
+                    DispatchQueue.main.async {
+                        hud.mode = .text
+                        hud.label.text = L.Home.initFailedDownloadFirst.loc
+                        hud.hide(animated: true, afterDelay: 3)
+                    }
+                    return
+                }
+            }
+
             DispatchQueue.main.async {
                 self.currentUsingModelType = selectedModelType
                 self.mtmdWrapperExample?.currentUsingModelType = selectedModelType
@@ -160,6 +180,44 @@ extension MBHomeViewController {
                 if selectedModelType == .V5TextModel || selectedModelType == .V526TextModel {
                     // MiniCPM5 纯文本模型：无 mmproj，走 text-only 初始化路径
                     await self.mtmdWrapperExample?.initializeTextOnly(modelPath: modelURL.path)
+                } else if selectedModelType == .V5_15B_A2_5B {
+                    // MiniCPM5-15B-A2.5B：bank / 窗口 c / 预读深度用 MiniCPM5_15B_A2_5BConst 自己的默认值，
+                    // 只有 n_ubatch 沿用 V4.7 的设置；窗口预算按这份文件自己的 les.moe.layout 算。
+                    let mode = MiniCPM5_15B_A2_5BConst.inferenceMode()
+                    print(MiniCPM5_15B_A2_5BConst.mmapDecisionReport()
+                          + " switch=\(mode.rawValue) auto=\(MiniCPM5_15B_A2_5BConst.inferenceModeIsDefault())")
+                    // 预测头内联在主模型里，这里只决定用不用它；只在 slot 方式下有意义（它决定预读哪些专家）。
+                    let usePredictor = mode == .slot && MiniCPM5_15B_A2_5BConst.predictorEnabled()
+                    print("MTMDWrapperExample: MiniCPM5-15B-A2.5B mode=\(mode.rawValue) predictor=\(usePredictor)")
+                    // 自带默认配置，不读 V4.7 的设置（也就不受它的会话值 / 安全网回退影响）。
+                    let depth = MiniCPM5_15B_A2_5BConst.lookaheadDepth()
+                    if mode == .mmap {
+                        // 整份映射最容易被系统杀掉：先落 pending，撑过第一轮问答才算过。
+                        MiniCPM5_15B_A2_5BConst.markMmapLoadStarted()
+                        // slot bank 0：引擎把 LES 文件整个 mmap，专家是载体张量上的视图。
+                        await self.mtmdWrapperExample?.initializeTextOnly(
+                            modelPath: modelURL.path,
+                            nCtx: MiniCPM5_15B_A2_5BConst.defaultNCtx,
+                            nUbatchOverride: MiniCPMV47Const.nUbatch(),
+                            modelVersion: 5,
+                            sampling: MiniCPM5_15B_A2_5BConst.sampling)
+                    } else {
+                        await self.mtmdWrapperExample?.initializeTextOnly(
+                            modelPath: modelURL.path,
+                            nCtx: MiniCPM5_15B_A2_5BConst.defaultNCtx,
+                            moeSlotBank: MiniCPM5_15B_A2_5BConst.slotBank(),
+                            moeDecodeWindow: MiniCPMV47Const.decodeWindow(
+                                modelDir: modelURL,
+                                requestedC: MiniCPM5_15B_A2_5BConst.cacheWindowC(),
+                                kSlotsOverride: depth,
+                                reserveMiBOverride: MiniCPM5_15B_A2_5BConst.windowReserveMiB),
+                            nUbatchOverride: MiniCPMV47Const.nUbatch(),
+                            lookaheadDepthOverride: depth,
+                            moeExpertPredictor: usePredictor,
+                            modelVersion: 5,
+                            sampling: MiniCPM5_15B_A2_5BConst.sampling
+                        )
+                    }
                 } else if selectedModelType == .V26MultiModel {
                     // V2.6 不走 CoreML / ANE，没有冷启动文案。
                     await self.mtmdWrapperExample?.initialize(modelPath: modelURL.path, mmprojPath: mmprojURL!.path)
@@ -399,7 +457,8 @@ extension MBHomeViewController {
                     // 自动化基准：只在 `-moeBench` 启动参数下触发。
                     // 放在这里是因为此时模型已 init 完成、depth 已由启动参数落地，
                     // 后面走的是和手动一模一样的 addText → startGeneration 链路。
-                    if selectedModelType == .V47MoE {
+                    // 15B 走同一条 addText → startGeneration 链路，所以也能跑同一套基准。
+                    if selectedModelType == .V47MoE || selectedModelType == .V5_15B_A2_5B {
                         self.runMoeBenchIfRequested()
                     }
                 }
@@ -502,6 +561,8 @@ extension MBHomeViewController {
                     waited += 1
                 }
                 let pt = inner.lastPerf
+                // 基准路径不经过对话页的 performanceLog sink，完成一轮就直接确认这一档可用。
+                MiniCPM5_15B_A2_5BConst.markMmapLoadOk(reason: "bench round \(round)")
                 let prTps = pt.prefill_ms > 0 ? Double(pt.prefill_tokens) / (pt.prefill_ms / 1000.0) : 0
                 let deTps = pt.decode_ms  > 0 ? Double(pt.decode_tokens)  / (pt.decode_ms  / 1000.0) : 0
                 benchLog(MBDeviceMemoryProbe.memoryReport("after round \(round)"))

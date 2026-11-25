@@ -28,6 +28,11 @@ import llama
 
     /// 温度参数
     public let temperature: Float
+    /// 纯文本路径的采样参数（多模态路径不读）。topP 0 = 用 bridge 默认（0.95）；
+    /// minP 0 = 关闭；repeatPenalty 1.0 = 关闭。
+    public let topP: Float
+    public let minP: Float
+    public let repeatPenalty: Float
 
     /// 是否使用 GPU
     public let useGPU: Bool
@@ -91,6 +96,15 @@ import llama
     /// 跳层专家预读数（look-ahead expert prefetch）。0 = 关闭；1..16 = 预读数量。仅 experts 路径有效。
     public let moeLookaheadPrefetchDepth: Int
 
+    /// 用模型文件里自带的训练版预测头决定预读哪些专家（引擎 `llama_model_params.moe_expert_predictor`）。
+    /// 需要 `moeSlotBank > 0`；文件里没有预测头时 bridge 会自动关掉它并退回每层自己的 router。
+    /// 只改变预读哪些专家，不改变输出。
+    public let moeExpertPredictor: Bool
+
+    /// 模型型号（`MBMtmd` 里的 model_version：26/40/46/47/471/5 …）。0 = 未知。
+    /// 只影响 chat 模板分支；未知时 bridge 按「有 slot bank ⇒ 47」兜底。
+    public let modelVersion: Int
+
     /// 缓存预热档位（引擎 `LLAMA_MOE_PREWARM`）。0 = 关闭；8/16/32/48/64/96 = 每层预读这么多
     /// 个「开头最常用」的专家。表内嵌在 bridge（MBPrewarmTable.h）。改完需重载模型。
     public let moePrewarmLevel: Int
@@ -138,6 +152,9 @@ import llama
         nCtx: Int = 4096,
         nThreads: Int = 4,
         temperature: Float = 0.7,
+        topP: Float = 0,
+        minP: Float = 0,
+        repeatPenalty: Float = 1.0,
         useGPU: Bool = true,
         mmprojUseGPU: Bool = true,
         warmup: Bool = true,
@@ -147,6 +164,8 @@ import llama
         moeSlotBank: Int = 0,
         moeDecodeWindow: Int = 0,
         moeLookaheadPrefetchDepth: Int = 0,
+        moeExpertPredictor: Bool = false,
+        modelVersion: Int = 0,
         moePrewarmLevel: Int = 0,
         moePrewarmTableId: Int = 0,
         draftModelPath: String = "",
@@ -158,6 +177,9 @@ import llama
         self.nCtx = nCtx
         self.nThreads = nThreads
         self.temperature = temperature
+        self.topP = topP
+        self.minP = minP
+        self.repeatPenalty = repeatPenalty
         self.useGPU = useGPU
         self.mmprojUseGPU = mmprojUseGPU
         self.warmup = warmup
@@ -167,6 +189,8 @@ import llama
         self.moeSlotBank = moeSlotBank
         self.moeDecodeWindow = moeDecodeWindow
         self.moeLookaheadPrefetchDepth = moeLookaheadPrefetchDepth
+        self.moeExpertPredictor = moeExpertPredictor
+        self.modelVersion = modelVersion
         self.moePrewarmLevel = moePrewarmLevel
         self.moePrewarmTableId = moePrewarmTableId
         self.draftModelPath = draftModelPath
@@ -193,6 +217,9 @@ import llama
         params.n_ubatch              = Int32(nUbatch)
         params.n_threads             = Int32(nThreads)
         params.temperature           = temperature
+        params.top_p                 = topP
+        params.min_p                 = minP
+        params.repeat_penalty        = repeatPenalty
         params.use_gpu               = useGPU
         params.mmproj_use_gpu        = mmprojUseGPU
         params.warmup                = warmup
@@ -206,6 +233,8 @@ import llama
         params.moe_slot_bank         = Int32(moeSlotBank)
         params.moe_decode_window     = Int32(moeDecodeWindow)
         params.moe_lookahead_prefetch_depth        = Int32(moeLookaheadPrefetchDepth)
+        params.moe_expert_predictor  = moeExpertPredictor
+        params.model_version         = Int32(modelVersion)
         params.moe_prewarm_level     = Int32(moePrewarmLevel)
         params.moe_prewarm_table_id  = Int32(moePrewarmTableId)
         params.spec_draft_n_max      = Int32(specDraftNMax)

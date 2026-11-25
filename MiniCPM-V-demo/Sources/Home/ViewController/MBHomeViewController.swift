@@ -695,7 +695,8 @@ import llama
             return
         }
 
-        let isTextOnly = (lastSelectedModelString == "V5TextModel" || lastSelectedModelString == "V526TextModel")
+        let isTextOnly = (lastSelectedModelString == "V5TextModel" || lastSelectedModelString == "V526TextModel"
+                          || lastSelectedModelString == MiniCPM5_15B_A2_5BConst.userDefaultsKey)
         let brandName = isTextOnly ? "MiniCPM" : "MiniCPM-V"
 
         let newTitle: String
@@ -714,6 +715,8 @@ import llama
                 modelDisplayedName = MiniCPMModelConst.modelv5_DisplayedName
             } else if lastSelectedModelString == "V526TextModel" {
                 modelDisplayedName = MiniCPMModelConst.modelv526_DisplayedName
+            } else if lastSelectedModelString == MiniCPM5_15B_A2_5BConst.userDefaultsKey {
+                modelDisplayedName = MiniCPM5_15B_A2_5BConst.currentDisplayedName
             }
 
             if !modelDisplayedName.isEmpty {
@@ -739,19 +742,20 @@ import llama
     /// 从 UserDefaults 判断当前选中的模型是否为纯文本
     var isSelectedModelTextOnly: Bool {
         let key = UserDefaults.standard.value(forKey: "current_selected_model") as? String ?? ""
-        return key == "V5TextModel" || key == "V526TextModel"
+        return key == "V5TextModel" || key == "V526TextModel" || key == MiniCPM5_15B_A2_5BConst.userDefaultsKey
     }
 
     /// MiniCPM5 / MiniCPM-V-4.6 才有思考开关；V-4 / V-2.6 / TTS 没有。
     var isSelectedModelSupportsThinking: Bool {
         let key = UserDefaults.standard.value(forKey: "current_selected_model") as? String ?? ""
-        return key == "V5TextModel" || key == "V526TextModel" || key == "V46MultiModel"
+        return key == "V5TextModel" || key == "V526TextModel" || key == MiniCPM5_15B_A2_5BConst.userDefaultsKey || key == "V46MultiModel"
     }
 
     /// 是否需要隐藏视觉相关 UI（纯文本 / TTS 模型）
     var isSelectedModelNonVisual: Bool {
         let key = UserDefaults.standard.value(forKey: "current_selected_model") as? String ?? ""
-        return key == "V5TextModel" || key == "V526TextModel" || key == "Voxcpm2Model" || key == "OcrModel"
+        return key == "V5TextModel" || key == "V526TextModel" || key == MiniCPM5_15B_A2_5BConst.userDefaultsKey
+            || key == "Voxcpm2Model" || key == "OcrModel"
     }
 
     /// 根据当前模型类型（视觉 vs 纯文本）动态显示/隐藏 UI 元素
