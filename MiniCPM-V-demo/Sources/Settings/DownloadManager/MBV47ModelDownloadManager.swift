@@ -165,7 +165,7 @@ final class MBV47ModelDownloadManager: NSObject {
         let tmp = NSTemporaryDirectory()
         for f in variant.files {
             for base in downloadBases {
-                let url = "\(base)/\(f.remotePath)"
+                let url = "\(base)/\(remotePath(for: f, under: base))"
                 guard let digested = url.md5() else { continue }
                 let ext = URL(string: url)?.pathExtension ?? "bin"
                 let name = "\(digested).\(ext)"
@@ -194,6 +194,11 @@ final class MBV47ModelDownloadManager: NSObject {
         [variant.hfBase, variant.msBase].filter { !$0.isEmpty }
     }
 
+    /// 某个源下该文件的仓库内路径。两个源的目录结构可能不同（见 `ModelDownloadFile.msRemotePath`）。
+    private func remotePath(for file: ModelDownloadFile, under base: String) -> String {
+        base == variant.msBase ? (file.msRemotePath ?? file.remotePath) : file.remotePath
+    }
+
     private func helper(for file: ModelDownloadFile) -> MBModelDownloadHelperV2? {
         if let h = queue.sync(execute: { helpers[file.localName] }) { return h }
         guard let wrapper = wrapper ?? sharedWrapperProbe else { return nil }
@@ -202,7 +207,10 @@ final class MBV47ModelDownloadManager: NSObject {
             modelName: variant.displayedName,
             modelUrl: "\(variant.hfBase)/\(file.remotePath)",
             filename: fullLocalName(file),
-            backupModelUrl: variant.msBase.isEmpty ? nil : "\(variant.msBase)/\(file.remotePath)"
+            // MS 是单个公共仓库、按模型分子目录存放，路径可能与 HF 不同（见 msRemotePath）。
+            backupModelUrl: variant.msBase.isEmpty
+                ? nil
+                : "\(variant.msBase)/\(file.msRemotePath ?? file.remotePath)"
         )
         queue.sync { helpers[file.localName] = h }
         return h

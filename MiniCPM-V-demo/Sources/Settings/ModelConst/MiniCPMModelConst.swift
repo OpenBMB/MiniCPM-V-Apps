@@ -276,10 +276,15 @@ struct MiniCPMModelConst {
 
 /// 一个可下载文件：仓库内路径 + 落盘到 `Documents/<documentsDirName>/` 下的相对名 +
 /// 期望字节数（用于进度条总长与下载后校验）。
+///
+/// `msRemotePath` 是 ModelScope 上的路径，nil = 与 `remotePath` 相同。两者分开是因为两个源
+/// 的目录结构可以不同：HF 是「一模型一仓库」、文件在根目录；MS 是单个公共仓库、按模型分子
+/// 目录存放。只有结构不同时才需要单独指定（目前只有 4.7 35B-A3B）。
 struct ModelDownloadFile {
     let remotePath: String
     let localName: String
     let bytes: Int64
+    var msRemotePath: String? = nil
 }
 
 /// MiniCPM-V 4.7 (35a3_hf_v47) MoE — 文本塔 qwen35moe + 视觉塔 minicpmv4_6。
@@ -360,10 +365,13 @@ struct MiniCPMV47Const {
     /// HF 走**独立组织** `LComni` 下的专用仓库：仓库本身就是这个模型，所以文件平铺在
     /// 根目录（`<hfBase>/<文件名>`），不套模型子目录。
     ///
-    /// `msBase` 留空 = 暂无国内镜像，备用源会被跳过（见 `downloadBases`）。
-    /// 镜像建好后把地址填回来即可，`downloadFiles` 不用动。
+    /// MS 没有「一模型一仓库」，全部 gguf 统一放在 `zerg13/MiniCPM-V-Apps-gguf` 下、按模型
+    /// 分子目录存放（本模型是 `LCO-MiniCPM-V-4.7-35B-A3B/`），所以 `downloadFiles` 里给了
+    /// 单独的 `msRemotePath`。
     static let hfBase = "https://huggingface.co/LComni/LCO-MiniCPM-V-4.7-35B-A3B-gguf/resolve/main"
-    static let msBase = ""
+    static let msBase = "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master"
+    /// MS 上的模型子目录（`msBase` 之后的那一段）。
+    static let msSubdir = "LCO-MiniCPM-V-4.7-35B-A3B"
 
     /// 需要下载的文件：主模型 + mmproj。
     ///
@@ -372,9 +380,11 @@ struct MiniCPMV47Const {
     static var downloadFiles: [ModelDownloadFile] {
         return [
             ModelDownloadFile(remotePath: modelFileName,
-                              localName: modelFileName, bytes: 15_504_371_712),
+                              localName: modelFileName, bytes: 15_504_371_712,
+                              msRemotePath: "\(msSubdir)/\(modelFileName)"),
             ModelDownloadFile(remotePath: mmprojFileName,
-                              localName: mmprojFileName, bytes: 1_119_575_840),
+                              localName: mmprojFileName, bytes: 1_119_575_840,
+                              msRemotePath: "\(msSubdir)/\(mmprojFileName)"),
         ]
     }
 
@@ -1306,7 +1316,12 @@ struct MiniCPM5_15B_A2_5BConst {
         /// Our own repack repository (one per precision). The expert predictor is packed into the
         /// model file itself, so this repo holds exactly one file.
         var hfBase: String { "https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/main" }
-        var msBase: String { "https://www.modelscope.cn/models/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/master" }
+        /// 国内备用源。MS 没有 HF 那种「一模型一仓库」，全部 gguf 统一放在
+        /// `zerg13/MiniCPM-V-Apps-gguf` 下、按模型分子目录（4.7 用的是
+        /// `LCO-MiniCPM-V-4.7-35B-A3B/`）。**本目录尚未上传**：模型还没开源，这里先占位，
+        /// 所以备用源目前会失败并被跳过（见 `downloadBases`），不影响 HF 主线。
+        /// 上传到 `LCO-MiniCPM5-15B-A2.5B/` 后路径即正确，无需改代码。
+        var msBase: String { "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master/LCO-MiniCPM5-15B-A2.5B" }
     }
 
     static let precisionDefaultsKey = "minicpm5_15b_a2_5b_precision"
