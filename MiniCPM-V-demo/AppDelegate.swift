@@ -24,6 +24,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("[MODEL] -moeInferenceAuto：已清掉保存的推理方式，回到本机自动判定")
             MiniCPM5_15B_A2_5BConst.resetInferenceMode()
         }
+        MiniCPM5_15B_A2_5BConst.logMmapGuardState("launch")
 
         // c 的默认值按设备内存分档（仅 V47 用 decode window）。
         if UserDefaults.standard.string(forKey: "current_selected_model") == MiniCPMV47Const.userDefaultsKey {

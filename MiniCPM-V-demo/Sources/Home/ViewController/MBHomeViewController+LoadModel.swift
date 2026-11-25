@@ -561,6 +561,8 @@ extension MBHomeViewController {
                     waited += 1
                 }
                 let pt = inner.lastPerf
+                // 基准路径不经过对话页的 performanceLog sink，完成一轮就直接确认这一档可用。
+                MiniCPM5_15B_A2_5BConst.markMmapLoadOk(reason: "bench round \(round)")
                 let prTps = pt.prefill_ms > 0 ? Double(pt.prefill_tokens) / (pt.prefill_ms / 1000.0) : 0
                 let deTps = pt.decode_ms  > 0 ? Double(pt.decode_tokens)  / (pt.decode_ms  / 1000.0) : 0
                 benchLog(MBDeviceMemoryProbe.memoryReport("after round \(round)"))

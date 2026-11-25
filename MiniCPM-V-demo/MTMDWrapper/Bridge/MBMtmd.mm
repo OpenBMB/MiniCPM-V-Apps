@@ -677,9 +677,13 @@ static bool moe_expert_predictor_requested(const mb_mtmd_params & params) {
 
 // 载入模型；开了预测头但文件里没有时，关掉它重试一次。
 //
-// 引擎在文件缺 `ffn_gate_inp_pred` 时直接抛异常（“moe_expert_predictor is on but the model
-// file has no …”），而预测头只是预读优化，不该让一个缺它的文件整份加载失败。所以这里退化：
-// 记一行日志，改用每层自己的 router。
+// 引擎在文件缺 `ffn_gate_inp_pred` 时于 hparams 阶段失败（"moe_expert_predictor is on but
+// the model file has no …"），而预测头只是预读优化，不该让一个缺它的文件整份加载失败。
+// 所以退化：记一行日志，改用每层自己的 router。
+//
+// 注意 `llama_model_load_from_file` 内部已经 catch 了所有异常并返回 nullptr，异常到不了
+// 这里的 catch；判据只能是「第一次没拿到模型」。失败发生在 hparams 阶段（毫秒级、还没读
+// 权重），所以重试的代价可以忽略。
 static llama_model * load_model_with_predictor_fallback(
         const std::string & path, llama_model_params mparams, bool & predictor_dropped) {
     predictor_dropped = false;
@@ -693,6 +697,7 @@ static llama_model * load_model_with_predictor_fallback(
     } catch (const std::exception & e) {
         fprintf(stderr, "[MBMtmd] predictor: %s -- retrying without it\n", e.what());
     }
+    // 第一次没拿到模型：最可能是文件里没有预测头。关掉再试一次，其余错误会在下面原样返回。
     mparams.moe_expert_predictor = false;
     predictor_dropped = true;
     try {

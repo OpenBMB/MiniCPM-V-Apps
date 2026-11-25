@@ -1402,6 +1402,7 @@ struct MiniCPM5_15B_A2_5BConst {
     // 进不去。做法同 V4.7 的缓存窗口：加载前落 pending，**撑过第一轮问答**才清；下次启动
     // 发现 pending 还在，就把模式降成「省内存」。
     private static let mmapPendingKey = "minicpm5_15b_a2_5b_mmap_pending"
+    private static let mmapRevertedKey = "minicpm5_15b_a2_5b_mmap_reverted"
 
     /// 以「最快」开始加载前调用。必须 synchronize()，否则异步写盘赶不上崩溃。
     static func markMmapLoadStarted() {
@@ -1411,11 +1412,12 @@ struct MiniCPM5_15B_A2_5BConst {
     }
 
     /// 第一轮问答完整跑完后调用：这一档在这台机器上是站得住的。
-    static func markMmapLoadOk() {
+    static func markMmapLoadOk(reason: String) {
         let ud = UserDefaults.standard
         guard ud.bool(forKey: mmapPendingKey) else { return }
         ud.set(false, forKey: mmapPendingKey)
         ud.synchronize()
+        print("[MODEL] mmap 安全网：已确认「最快」可用（\(reason)），清掉 pending")
     }
 
     /// 上次「最快」没撑过第一轮 → 降成「省内存」。必须在
@@ -1429,8 +1431,25 @@ struct MiniCPM5_15B_A2_5BConst {
             return
         }
         ud.set(InferenceMode.slot.rawValue, forKey: inferenceModeDefaultsKey)
+        ud.set(true, forKey: mmapRevertedKey)
         ud.synchronize()
         print("[MODEL] 上次「最快」模式没跑完（可能被系统杀掉）→ 已切回「省内存」")
+    }
+
+    /// 上次是否因为「最快」没起来而被自动降级。**读完即清**，避免反复提示。
+    static func consumeMmapRevertNotice() -> Bool {
+        let ud = UserDefaults.standard
+        guard ud.bool(forKey: mmapRevertedKey) else { return false }
+        ud.set(false, forKey: mmapRevertedKey)
+        return true
+    }
+
+    /// 仅供测试/救援：把安全网状态打出来，确认 pending 到底有没有清干净。
+    static func logMmapGuardState(_ where_: String) {
+        let ud = UserDefaults.standard
+        let pending = ud.bool(forKey: mmapPendingKey)
+        let stored = ud.string(forKey: inferenceModeDefaultsKey) ?? "(auto)"
+        print("[MODEL] mmap guard @\(where_): pending=\(pending) stored=\(stored)")
     }
     /// 「最快」方式需要多少字节：整份权重进内存，外加 KV cache 和计算缓冲。
     ///

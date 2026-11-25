@@ -74,6 +74,7 @@ import llama
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         showCacheWindowRevertNoticeIfNeeded()
+        showMmapRevertNoticeIfNeeded()
     }
 
     /// 若上次启动因缓存设得过大而回退，这里告知用户 —— 回退是静默发生的。
@@ -82,6 +83,17 @@ import llama
         let alert = UIAlertController(
             title: L.Settings.cacheWindowRevertedTitle.loc,
             message: String(format: L.Settings.cacheWindowRevertedBody.loc, "\(attempted)"),
+            preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L.Common.ok.loc, style: .default))
+        present(alert, animated: true)
+    }
+
+    /// 15B 的「最快」模式没起来时也是静默降级，同样要告诉用户，否则只会觉得「变慢了」。
+    private func showMmapRevertNoticeIfNeeded() {
+        guard MiniCPM5_15B_A2_5BConst.consumeMmapRevertNotice() else { return }
+        let alert = UIAlertController(
+            title: L.Settings.minicpm5MmapRevertedTitle.loc,
+            message: L.Settings.minicpm5MmapRevertedBody.loc,
             preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: L.Common.ok.loc, style: .default))
         present(alert, animated: true)
@@ -351,9 +363,7 @@ extension MBSettingsViewController: UITableViewDelegate {
         let current = MiniCPM5_15B_A2_5BConst.inferenceMode()
         let sheet = UIAlertController(
             title: Self.rowInferenceMode,
-            message: String(format: L.Settings.minicpm5InferenceModeMessage.loc,
-                            ByteCountFormatter.string(fromByteCount: MiniCPM5_15B_A2_5BConst.mmapRequiredBytes(),
-                                                      countStyle: .memory)),
+            message: L.Settings.minicpm5InferenceModeMessage.loc,
             preferredStyle: .actionSheet)
         let apply: (MiniCPM5_15B_A2_5BConst.InferenceMode) -> Void = { [weak self] mode in
             MiniCPM5_15B_A2_5BConst.setInferenceMode(mode)
