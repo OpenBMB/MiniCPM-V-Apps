@@ -118,6 +118,13 @@ final class MBV47ModelDownloadManager: NSObject {
     var detailedProgressHandler: ((DownloadProgressInfo) -> Void)?
     var completionHandler: ((String, Bool) -> Void)?
 
+    /// 上一次失败是不是因为「所有下载源都拿不到这个文件」。
+    ///
+    /// 与普通网络失败分开，UI 才能提示「模型可能还没开源」而不是笼统的「下载出错」——
+    /// 模型没发布时 404 和断网在 FDownLoader 眼里是一样的，光看它分不出来。
+    /// 每次 `downloadAll()` 开头复位；`completionHandler(success: false)` 之前置位。
+    private(set) var lastFailureWasUnavailable = false
+
     // MARK: - 路径
 
     private func documentsDir() -> URL {
@@ -197,6 +204,74 @@ final class MBV47ModelDownloadManager: NSObject {
     /// 某个源下该文件的仓库内路径。两个源的目录结构可能不同（见 `ModelDownloadFile.msRemotePath`）。
     private func remotePath(for file: ModelDownloadFile, under base: String) -> String {
         base == variant.msBase ? (file.msRemotePath ?? file.remotePath) : file.remotePath
+    }
+
+    /// 探测「这个文件在各源上到底存不存在」。
+    ///
+    /// 为什么不能靠下载器报错判断：`FDownLoader` 对 404、连接被拒、超时一律回同一个
+    /// `failed`，所以模型还没开源时用户只会看到「下载失败」，会以为是 App 或网络的锅。
+    /// 这里在真正开下之前先 HEAD 一遍，把「所有源都没有这个文件」单独识别出来。
+    ///
+    /// 判定口径（`notPublished` = true 表示「文件确实不在，几乎可以肯定是没开源」）：
+    /// - 任一源 200/206            → 能下，交给下载器
+    /// - 没有源能拿到，但有源明确回 404/401/403 → 判定未公开。404 是「不存在」，401/403 是
+    ///   「仓库还是 private」，两者对用户都是「还没开放」。
+    /// - 所有源都连不上（DNS/超时/5xx） → 不判未公开，按普通网络失败处理，免得误导。
+    ///
+    /// 最后一条只要求**至少一个源明确说不存在**，而不是所有源都如此：国内网络下 HF 经常
+    /// 直接连不上（连 401 都收不到），而 MS 会明确回 404。这时「MS 说不存在 + HF 连不上」
+    /// 的真实结论就是「没开源」，不该因为 HF 超时而退化成一个笼统的失败。
+    private func probeAvailability(of file: ModelDownloadFile,
+                                   completion: @escaping (Bool) -> Void) {
+        let bases = downloadBases
+        guard !bases.isEmpty else {
+            DispatchQueue.main.async { completion(false) }
+            return
+        }
+
+        let group = DispatchGroup()
+        let lock = NSLock()
+        var sawReachable = false   // 任一源能拿到
+        var sawDefinitelyAbsent = false   // 任一源明确 404/401/403
+
+        for base in bases {
+            let urlString = "\(base)/\(remotePath(for: file, under: base))"
+            guard let url = URL(string: urlString) else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "HEAD"
+            req.timeoutInterval = 15
+            req.cachePolicy = .reloadIgnoringLocalCacheData
+
+            group.enter()
+            URLSession.shared.dataTask(with: req) { _, response, error in
+                defer { group.leave() }
+                lock.lock()
+                defer { lock.unlock() }
+                guard let http = response as? HTTPURLResponse else {
+                    // 连不上（DNS/超时/被墙）：不构成「文件不存在」的证据。
+                    if let error = error {
+                        debugLog("-->> 探测: \(urlString.prefix(80)) 无响应（\(error.localizedDescription)）")
+                    }
+                    return
+                }
+                switch http.statusCode {
+                case 200, 206:
+                    sawReachable = true
+                case 401, 403, 404:
+                    sawDefinitelyAbsent = true
+                default:
+                    break                // 5xx 等：服务在，但这次没成，不当作「不存在」
+                }
+            }.resume()
+        }
+
+        group.notify(queue: .main) {
+            lock.lock()
+            let reachable = sawReachable
+            let absent = sawDefinitelyAbsent
+            lock.unlock()
+            completion(!reachable && absent)
+        }
     }
 
     private func helper(for file: ModelDownloadFile) -> MBModelDownloadHelperV2? {
@@ -316,6 +391,7 @@ final class MBV47ModelDownloadManager: NSObject {
 
     func downloadAll() {
         reconcileStatusFromDisk()
+        lastFailureWasUnavailable = false
 
         // 每次**用户主动点下载**都重新给满重试额度、并复位 helper 的粘性 status。
         //
@@ -340,7 +416,30 @@ final class MBV47ModelDownloadManager: NSObject {
         for f in pending {
             queue.sync { fileState[f.localName] = .notStarted }
         }
-        pump()
+
+        guard let firstPending = pending.first else {
+            pump()
+            return
+        }
+
+        // 开下之前先确认文件真的在。模型还没开源时两个源都是 404，下载器只会回一个
+        // 笼统的 failed，用户看不出是「还没发布」；这里提前区分开。
+        probeAvailability(of: firstPending) { [weak self] notPublished in
+            guard let self = self else { return }
+            if notPublished {
+                debugLog("-->> 所有下载源都没有 \(firstPending.remotePath)，判定为尚未发布/未公开")
+                self.queue.sync {
+                    for f in pending {
+                        self.fileState[f.localName] = .failed
+                    }
+                    self.attempts.removeAll()
+                }
+                self.lastFailureWasUnavailable = true
+                self.completionHandler?(self.variant.displayedName, false)
+                return
+            }
+            self.pump()
+        }
     }
 
     /// 用「完成一个补一个」的窗口调度，替代一次性全部并发。

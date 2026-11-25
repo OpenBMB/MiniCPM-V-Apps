@@ -340,13 +340,19 @@ import llama
         }
         downloadManager.completionHandler = { [weak self] _, success in
             DispatchQueue.main.async {
-                self?.refreshVisibleRows()
-                if !success {
-                    let hud = MBHUD.showAdded(to: self?.view ?? UIView(), animated: true)
-                    hud.mode = .text
-                    hud.label.text = L.Download.statusFailed.loc
-                    hud.hide(animated: true, afterDelay: 2.0)
-                }
+                guard let self = self else { return }
+                self.refreshVisibleRows()
+                guard !success else { return }
+                // 区分「文件在源上不存在」和「网络/其它失败」：前者几乎总是模型还没开源，
+                // 说「下载出错」会让人一直重试。
+                let unpublished = self.downloadManager.lastFailureWasUnavailable
+                let hud = MBHUD.showAdded(to: self.view, animated: true)
+                hud.mode = .text
+                hud.label.numberOfLines = 0
+                hud.label.text = unpublished
+                    ? L.Download.statusNotPublishedHint.loc
+                    : L.Download.statusFailed.loc
+                hud.hide(animated: true, afterDelay: unpublished ? 4.0 : 2.0)
             }
         }
     }
@@ -377,7 +383,12 @@ import llama
         let done = row.files.filter { downloadManager.isFileDownloaded($0) }.count
         if done == row.files.count { return L.Download.statusDownloaded.loc }
         let active = row.files.contains { downloadManager.fileStatus($0) == "failed" }
-        if active { return L.Download.statusFailed.loc }
+        if active {
+            // 源上根本没有这个文件（模型还没开源）时，别让这一行显示「下载失败」——
+            // 会和 HUD 的提示互相矛盾，也诱导用户反复重试。
+            if downloadManager.lastFailureWasUnavailable { return L.Download.statusNotPublished.loc }
+            return L.Download.statusFailed.loc
+        }
         if done == 0 { return L.Download.statusNotDownloaded.loc }
         return String(format: "%@ %d/%d", L.Download.statusDownloading.loc, done, row.files.count)
     }

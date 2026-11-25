@@ -145,6 +145,8 @@ extension LocalizationManager {
         L.Download.statusDownloaded:     "已下载",
         L.Download.statusDownloading:    "下载中…",
         L.Download.statusFailed:         "下载失败",
+        L.Download.statusNotPublished:   "暂未公开",
+        L.Download.statusNotPublishedHint: "模型还没有公开，暂时下载不了。\n稍后再试，或联系我们获取内测版本。",
         L.Download.statusNotDownloaded:  "未下载",
         L.Download.statusPaused:         "已暂停",
         L.Download.verifying:            "校验中…",

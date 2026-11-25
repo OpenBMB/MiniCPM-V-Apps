@@ -187,6 +187,8 @@ public enum L {
         public static let statusDownloaded   = "download.status.downloaded"
         public static let statusDownloading  = "download.status.downloading"
         public static let statusFailed       = "download.status.failed"
+        public static let statusNotPublished = "download.status.notPublished"
+        public static let statusNotPublishedHint = "download.status.notPublished.hint"
         public static let statusNotDownloaded = "download.status.notDownloaded"
         public static let statusPaused       = "download.status.paused"
 

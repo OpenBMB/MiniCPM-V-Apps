@@ -148,6 +148,8 @@ extension LocalizationManager {
         L.Download.statusDownloaded:     "Downloaded",
         L.Download.statusDownloading:    "Downloading…",
         L.Download.statusFailed:         "Download failed",
+        L.Download.statusNotPublished:   "Not published yet",
+        L.Download.statusNotPublishedHint: "This model is not published yet, so it cannot be downloaded.\nTry again later.",
         L.Download.statusNotDownloaded:  "Not downloaded",
         L.Download.statusPaused:         "Paused",
         L.Download.verifying:            "Verifying…",
