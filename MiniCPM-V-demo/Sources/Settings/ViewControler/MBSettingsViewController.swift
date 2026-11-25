@@ -791,7 +791,8 @@ extension MBSettingsViewController {
             model15b.detailText = precision.specTag
             // detailText 与 statusString 并排（精度在左、状态在右），否则状态不显示。
             model15b.shouldShowStatusText = true
-            model15b.icon = UIImage(systemName: "cpu")
+            // 纯文本模型与 MiniCPM5-1B / 2B 用同一个图标；cpu 是视觉模型的。
+            model15b.icon = UIImage(systemName: "text.bubble")
             model15b.accessoryIcon = UIImage(named: "setting_accessory_icon")
             model15b.selectedIcon = UIImage(systemName: "checkmark.circle.fill")
             let artifacts15b = MiniCPM5_15B_A2_5BConst.resolveArtifacts(precision: precision)
