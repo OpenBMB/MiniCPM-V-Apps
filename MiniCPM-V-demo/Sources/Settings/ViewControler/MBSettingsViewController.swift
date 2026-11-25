@@ -333,8 +333,11 @@ extension MBSettingsViewController: UITableViewDelegate {
             } else if title == MiniCPMV47_1BConst.displayedName {
                 let vc = MBV47ModelDetailViewController(oneBWith: mtmdWrapperExample)
                 self.navigationController?.pushViewController(vc, animated: true)
-            } else if let p = MiniCPM5_15B_A2_5BConst.Precision.allCases.first(where: { $0.displayedName == title }) {
-                // 与 4.7 共用多文件下载/详情页：主模型 + 专家预测器，每个精度一页
+            } else if let p = MiniCPM5_15B_A2_5BConst.Precision.allCases.first(where: {
+                $0.displayedName == title && $0.specTag == (model.detailText ?? "")
+            }) {
+                // 与 4.7 共用多文件下载/详情页：主模型 + 专家预测器，每个精度一页。
+                // 名字不含精度，所以连同右侧小字一起匹配，将来加精度不会串页。
                 let vc = MBV47ModelDetailViewController(minicpm5MoEWith: mtmdWrapperExample, precision: p)
                 self.navigationController?.pushViewController(vc, animated: true)
             }
@@ -781,10 +784,13 @@ extension MBSettingsViewController {
 
         section.append(model26)
 
-        // MiniCPM5-15B-A2.5B：每个精度一行
+        // MiniCPM5-15B-A2.5B：每个精度一行。名字只写模型，精度放右侧小字（同 4.7）。
         for precision in MiniCPM5_15B_A2_5BConst.Precision.allCases {
             let model15b = MBSettingsModel()
             model15b.title = precision.displayedName
+            model15b.detailText = precision.specTag
+            // detailText 与 statusString 并排（精度在左、状态在右），否则状态不显示。
+            model15b.shouldShowStatusText = true
             model15b.icon = UIImage(systemName: "cpu")
             model15b.accessoryIcon = UIImage(named: "setting_accessory_icon")
             model15b.selectedIcon = UIImage(systemName: "checkmark.circle.fill")

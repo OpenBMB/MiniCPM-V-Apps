@@ -1273,13 +1273,21 @@ struct MiniCPM5_15B_A2_5BConst {
         /// 路由专家 Q3_K，其余按 Q4_K_M。
         case q3gud
 
+        /// 内部标签：只用于文件名和日志，不展示给用户。
         var label: String {
             switch self {
             case .q3gud: return "Q3_gud"
             }
         }
-        /// 设置列表 / 首页标题里的名字。
-        var displayedName: String { "\(MiniCPM5_15B_A2_5BConst.displayedName) \(label)" }
+        /// 设置列表右侧那行小字。和 4.7 一样把精度放在这里（「Q3_K · 3B 激活」），
+        /// 模型名只写模型本身 —— 名字里挂量化档是错的，同一个模型的多个精度会撞名。
+        var specTag: String {
+            switch self {
+            case .q3gud: return "Q3_K · 2.5B 激活"
+            }
+        }
+        /// 列表 / 详情页标题：只有模型名，不含量化档。
+        var displayedName: String { MiniCPM5_15B_A2_5BConst.displayedName }
         /// 文件名里的版本号用下划线（`A2_5B`），目录名才用点（`A2.5B`）—— 与 4.7 那个仓库一致。
         var modelFileName: String { "LCO-MiniCPM5-15B-A2_5B-\(label).gguf" }
         var modelBytes: Int64 {
