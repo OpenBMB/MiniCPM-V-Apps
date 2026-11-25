@@ -359,6 +359,8 @@ struct mb_mtmd_context {
     // 当前 lctx 是用什么 ub / n_ctx 建的（自适应切换时用来判断要不要重建）。
     int32_t             n_ubatch_cur = 0;
     int32_t             n_ctx_cur    = 0;
+    // The last prefill did not fit in n_ctx (see mb_mtmd_context_full).
+    bool                ctx_full     = false;
     // 启动参数显式给了 ub 时不启用自适应（基准要能钉死配置）。
     bool                ubatch_adaptive = false;
 
@@ -659,6 +661,43 @@ static void apply_moe_nocache_env(const char * where) {
         fprintf(stderr, "[MBMtmd] %s LLAMA_MOE_F_NOCACHE=%s\n", where, mode);
     }
 }
+
+// `-moePredictor <file>`：训练版专家预测器（引擎侧 LLAMA_MOE_PREDICTOR，只在 lookahead 开启时
+// 生效，只改变预读哪些专家，不改变输出）。相对路径按 App 的 Documents 解析。
+// 没给启动参数时不碰调用方已设的环境变量。
+static void apply_moe_predictor_env(const char * where) {
+    NSArray<NSString *> * args = [[NSProcessInfo processInfo] arguments];
+    NSUInteger i = [args indexOfObject:@"-moePredictor"];
+    if (i == NSNotFound || i + 1 >= args.count) {
+        return;
+    }
+    NSString * path = args[i + 1];
+    if (![path isAbsolutePath]) {
+        NSString * docs = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        path = [docs stringByAppendingPathComponent:path];
+    }
+    setenv("LLAMA_MOE_PREDICTOR", [path UTF8String], 1);
+    fprintf(stderr, "[MBMtmd] %s LLAMA_MOE_PREDICTOR=%s\n", where, [path UTF8String]);
+}
+
+// GGUF 里的 `<arch>.expert_used_count`（checkpoint 的 top-k）；不是 MoE 时返回 0。
+static int32_t mb_model_expert_used(const llama_model * model) {
+    char arch[64] = {0};
+    if (llama_model_meta_val_str(model, "general.architecture", arch, sizeof(arch)) <= 0) {
+        return 0;
+    }
+    char key[128];
+    snprintf(key, sizeof(key), "%s.expert_used_count", arch);
+    char val[32] = {0};
+    return llama_model_meta_val_str(model, key, val, sizeof(val)) > 0 ? atoi(val) : 0;
+}
+
+// 预热表（MBPrewarmTable.h）是 MiniCPM-V 4.7 35B-A3B 的专家 id（0..255），对别的模型
+// 没有意义，还会越界。模型加载后、建 context 之前（引擎在建 context 时读表）关掉。
+static void mb_disable_prewarm_unless_qwen35moe(mb_mtmd_context * ctx, const char * where);
+
+// top-k 取 checkpoint 自己的 expert_used_count（V4.7 是 8，MiniCPM5 是 16），桥接层不改 K。
+static void mb_init_moe_k_from_model(mb_mtmd_context * ctx, const char * where);
 
 // `-moeLogEveryStep`：每步都打引擎的 decode 归因行（默认只在 #<=8 和 %32 打）。
 // 没有它，设备上只能看到前 8 步 —— 而前 8 步还在缓存爬坡，稳态 miss 根本看不到，
@@ -1022,7 +1061,6 @@ static void perf_add_prep(mb_mtmd_context * ctx, double ms) {
     ctx->perf_prep_ms += std::max(0.0, ms);
 }
 
-static constexpr int MB_MOE_EXPERTS_USED = 8;
 static constexpr int MB_MOE_EXPERT_COUNT = 256;
 // p8d8 (top-8 for both prefill and decode) is the only precision-safe default:
 // the experts and the checkpoint are trained at K=8, and lowering K changes the
@@ -1054,6 +1092,31 @@ static void apply_moe_k(mb_mtmd_context * ctx, int32_t k) {
     }
     llama_set_n_expert_used(ctx->lctx.get(), k);
     fprintf(stderr, "[MBMtmd] moe_k %d -> %d\n", cur, llama_n_expert_used(ctx->lctx.get()));
+}
+
+static void mb_disable_prewarm_unless_qwen35moe(mb_mtmd_context * ctx, const char * where) {
+    if (!ctx || ctx->moe_prewarm_level <= 0) {
+        return;
+    }
+    char arch[64] = {0};
+    llama_model_meta_val_str(ctx->model.get(), "general.architecture", arch, sizeof(arch));
+    if (strcmp(arch, "qwen35moe") == 0) {
+        return;
+    }
+    unsetenv("LLAMA_MOE_PREWARM");
+    ctx->moe_prewarm_level = 0;
+    mb_logf("[MBMtmd] %s prewarm: off (tables are for qwen35moe, model is %s)", where, arch);
+}
+
+static void mb_init_moe_k_from_model(mb_mtmd_context * ctx, const char * where) {
+    if (!ctx || !ctx->moe_enabled) {
+        return;
+    }
+    const int32_t k = mb_model_expert_used(ctx->model.get());
+    ctx->moe_k_prefill = k > 0 ? k : MB_MOE_K_PREFILL;
+    ctx->moe_k_decode  = k > 0 ? k : MB_MOE_K_DECODE;
+    fprintf(stderr, "[MBMtmd] %s moe_k=prefill%d/decode%d (model metadata)\n",
+            where, ctx->moe_k_prefill, ctx->moe_k_decode);
 }
 
 // Adapter for the older mtmd shipped by this engine branch.
@@ -1505,6 +1568,9 @@ mb_mtmd_params mb_mtmd_params_default(void) {
     p.n_ubatch              = 0;       // 0 = pick MB_DEFAULT_N_UBATCH below
     p.n_threads             = 4;
     p.temperature           = 0.7f;     // 0 = 贪心（可用 MB_TEMP=0 覆盖）
+    p.min_p                 = 0.0f;
+    p.repeat_penalty        = 1.0f;
+    p.repeat_last_n         = 64;
     p.use_gpu               = true;
     p.mmproj_use_gpu        = true;
     p.warmup                = true;
@@ -1887,14 +1953,12 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         apply_moe_dummy_read_env("before model load");
         apply_moe_read_delay_env("before model load");
         apply_moe_nocache_env("before model load");
+        apply_moe_predictor_env("before model load");
         ctx->moe_prewarm_level = apply_moe_prewarm_env(
             params.moe_prewarm_level, params.moe_prewarm_table_id,
             params.moe_decode_window, "before model load");
-        ctx->moe_k_prefill = MB_MOE_K_PREFILL;
-        ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
-                ctx->moe_k_prefill, ctx->moe_k_decode);
+        fprintf(stderr, "[MBMtmd] LES slot_bank=%d shared=on lookahead=d%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth));
     }
 
     ctx->model.reset(llama_model_load_from_file(model_path, mparams));
@@ -1902,6 +1966,8 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
         set_error(ctx.get(), std::string("Failed to load model from: ") + model_path);
         return nullptr;
     }
+    mb_init_moe_k_from_model(ctx.get(), "after model load");
+    mb_disable_prewarm_unless_qwen35moe(ctx.get(), "after model load");
 
 // 内存预算：n_ubatch 主导 GPU compute buffer（n_ubatch=1024 约 970 MiB）。
 // n_batch 保持 2048（只影响 dispatch 次数）。flash_attn=AUTO。
@@ -1927,7 +1993,7 @@ mb_mtmd_context * mb_mtmd_init(const char * model_path,
             requested_ubatch = 1;
         }
         if (slot_bank < MB_MOE_EXPERT_COUNT) {
-            const int max_ub = std::max(1, slot_bank / MB_MOE_EXPERTS_USED);
+            const int max_ub = std::max(1, slot_bank / std::max(1, ctx->moe_k_prefill));
             requested_ubatch = std::min(requested_ubatch, max_ub);
         }
     }
@@ -2128,14 +2194,12 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         apply_moe_dummy_read_env("before model load (text-only)");
         apply_moe_read_delay_env("before model load (text-only)");
         apply_moe_nocache_env("before model load (text-only)");
+        apply_moe_predictor_env("before model load (text-only)");
         ctx->moe_prewarm_level = apply_moe_prewarm_env(
             params.moe_prewarm_level, params.moe_prewarm_table_id,
             params.moe_decode_window, "before model load (text-only)");
-        ctx->moe_k_prefill = MB_MOE_K_PREFILL;
-        ctx->moe_k_decode  = MB_MOE_K_DECODE;
-        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d moe_k=prefill%d/decode%d\n",
-                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth),
-                ctx->moe_k_prefill, ctx->moe_k_decode);
+        fprintf(stderr, "[MBMtmd] text-only LES slot_bank=%d shared=on lookahead=d%d\n",
+                slot_bank, clamp_lookahead_prefetch_depth(params.moe_lookahead_prefetch_depth));
     }
 
     ctx->model.reset(llama_model_load_from_file(model_path, mparams));
@@ -2143,6 +2207,8 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         set_error(ctx.get(), std::string("Failed to load model from: ") + model_path);
         return nullptr;
     }
+    mb_init_moe_k_from_model(ctx.get(), "after model load (text-only)");
+    mb_disable_prewarm_unless_qwen35moe(ctx.get(), "after model load (text-only)");
 
     // ---- Create llama_context ----
     // 自适应：没显式钉 ub 时，先用**小** ub 建 context（短 prompt 的常见情形直接受益，
@@ -2198,7 +2264,9 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
     }
 
     // ---- Build sampler chain ----
-    // MiniCPM 5: temperature=0.6, top_p=0.95 (from generation_config.json)
+    // 纯文本路径：penalties → top_p → min_p → temp → dist（llama.cpp 的默认顺序）。
+    // 调用方不传时：temperature 0.6、top_p 0.95（MiniCPM5-1B / 2B 的 generation_config），
+    // min_p / 重复惩罚关闭。
     {
         llama_sampler_chain_params scp = llama_sampler_chain_default_params();
         scp.no_perf = false;
@@ -2217,12 +2285,20 @@ mb_mtmd_context * mb_mtmd_init_text_only(const char * model_path,
         uint32_t seed = LLAMA_DEFAULT_SEED;
         if (const char * e = getenv("MB_TEMP")) { temp = (float) atof(e); }
         if (const char * e = getenv("MB_SEED")) { seed = (uint32_t) strtoul(e, nullptr, 10); }
+        const float top_p = (params.top_p > 0.0f && params.top_p < 1.0f) ? params.top_p : 0.95f;
         if (temp > 0.0f) {
-            llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(0.95f, /*min_keep=*/1));
+            if (params.repeat_penalty > 0.0f && params.repeat_penalty != 1.0f) {
+                llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_penalties(
+                    std::max(0, params.repeat_last_n), params.repeat_penalty, /*freq=*/0.0f, /*present=*/0.0f));
+            }
+            llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_top_p(top_p, /*min_keep=*/1));
+            if (params.min_p > 0.0f) {
+                llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_min_p(params.min_p, /*min_keep=*/1));
+            }
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_temp(temp));
             llama_sampler_chain_add(ctx->sampler.get(), llama_sampler_init_dist(seed));
-            mb_logf("sampler (text-only): temp=%.3f dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
-                    temp, (unsigned) seed,
+            mb_logf("sampler (text-only): temp=%.3f top_p=%.3f min_p=%.3f repeat_penalty=%.3f (last %d) dist seed=%u (MB_TEMP=%s MB_SEED=%s)",
+                    temp, top_p, params.min_p, params.repeat_penalty, params.repeat_last_n, (unsigned) seed,
                     getenv("MB_TEMP") ? getenv("MB_TEMP") : "(unset)",
                     getenv("MB_SEED") ? getenv("MB_SEED") : "(unset)");
         } else {
@@ -2281,6 +2357,10 @@ bool mb_mtmd_clean_kv_cache(mb_mtmd_context * ctx) {
 
 void mb_mtmd_set_model_version(mb_mtmd_context * ctx, int version) {
     if (ctx) ctx->model_version = version;
+}
+
+bool mb_mtmd_context_full(mb_mtmd_context * ctx) {
+    return ctx && (ctx->ctx_full || (ctx->n_ctx_cur > 0 && ctx->n_past >= ctx->n_ctx_cur));
 }
 
 void mb_mtmd_set_enable_thinking(mb_mtmd_context * ctx, bool enable) {
@@ -2690,6 +2770,16 @@ int mb_mtmd_prefill_text(mb_mtmd_context * ctx, const char * text_in, const char
         // 长度与本轮无关，所以不再切换。
         moe_adaptive_ubatch(ctx, /*has_image=*/false, static_cast<int>(tokens.size()));
 
+        // The prompt has to fit in what is left of the context window; otherwise llama_decode
+        // fails part-way. Refuse it up front so the caller can tell the user to start a new chat.
+        ctx->ctx_full = false;
+        if (ctx->n_ctx_cur > 0 && ctx->n_past + (int32_t) tokens.size() >= ctx->n_ctx_cur) {
+            ctx->ctx_full = true;
+            set_error(ctx, "prefill_text: context full (n_past=" + std::to_string(ctx->n_past)
+                + " + " + std::to_string(tokens.size()) + " >= n_ctx=" + std::to_string(ctx->n_ctx_cur) + ")");
+            return -1;
+        }
+
         // Prefill tokens in batches
         const llama_pos start_n_past = ctx->n_past;
         const int32_t batch_size = ctx->n_batch;
@@ -3096,6 +3186,11 @@ mb_mtmd_token mb_mtmd_loop(mb_mtmd_context * ctx) {
     // 未开启投机时走下面逐 token 的原路径，行为一字未改（回归安全网）。
     if (ctx->spec_enabled && ctx->spec) {
         return mb_mtmd_loop_spec(ctx, t0);
+    }
+
+    // The context window is full: stop here (no decode slot left), see mb_mtmd_context_full.
+    if (ctx->n_ctx_cur > 0 && ctx->n_past >= ctx->n_ctx_cur) {
+        return result;
     }
 
     // 1) Sample one token from the most recent decode's logits.

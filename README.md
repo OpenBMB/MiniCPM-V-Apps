@@ -11,6 +11,7 @@ This demo runs the MiniCPM-V family of multimodal models fully on-device on iOS,
 * **MiniCPM-V 4.7 1B** (dense)
 * **MiniCPM5-1B** (text-only)
 * **MiniCPM5-2B** (text-only)
+* **MiniCPM5-15B-A2.5B** (text-only MoE, iOS)
 * **VoxCPM2** (text-to-speech, TTS)
 * **MiniCPM-OCR 1.0** (document OCR — iOS & Android)
 
@@ -200,6 +201,7 @@ The on-device memory needed to run a model is roughly *(model file size) + KV ca
 | MiniCPM-V 4.7 1B | 1B | Q4_K_M | ~0.7 GB | ~1.1 GB | ~1.8 GB | **≥ 4 GB** |
 | MiniCPM5-1B | 1B | Q4_K_M | ~0.5 GB | — | ~0.5 GB | **≥ 4 GB** |
 | MiniCPM5-2B | 2B | Q4_K_M | ~1.5 GB | — | ~1.5 GB | **≥ 6 GB** |
+| MiniCPM5-15B-A2.5B | 15B (2.5B active) | Q3_gud (Q3_K experts) | ~6.8 GB | — | ~6.8 GB | **≥ 8 GB** (Fastest mode: ≥ 12 GB) |
 | VoxCPM2 (TTS) | ~2B | Q4_K_M + F16 | ~1.0 GB | — | ~2.8 GB | **≥ 6 GB** |
 | MiniCPM-OCR 1.0 (iOS) | 752M | Q4_K_M | ~0.5 GB | ~0.9 GB | **~1.6 GB** | **≥ 6 GB** |
 
@@ -207,10 +209,11 @@ Notes:
 
 * `mmproj` is the vision projector + ViT weights; it is shipped in **f16** because quantising the visual tower hurts perception quality noticeably more than quantising the LLM.
 * MiniCPM5-1B and MiniCPM5-2B are text-only models and do not need an `mmproj` file.
+* MiniCPM5-15B-A2.5B (iOS only) is text-only. Its **Q3_gud** quant keeps Q3_K for the routed experts and a Q4_K_M recipe for everything else; the GGUF header reports `general.file_type` as Q4_K_M, so the precision is spelled out in the file name. It has been validated on a 12 GB iPhone 18 Pro Max — see §2.7.
 * VoxCPM2 requires two GGUF files (BaseLM + Acoustic) and does not use an `mmproj` either — it is a pure TTS model.
 * MiniCPM-OCR 1.0 is a three-file model: the LLM, the 4x vision projector, **and** a separate PP-DocLayoutV3 ONNX layout detector. It is wired up on **iOS, Android and HarmonyOS**. Its `mmproj` is a 4x projector and is *not* interchangeable with the chat models' `mmproj`.
 * MiniCPM-V 4.7 35B-A3B uses a **Q3_K** expert quant (`mix_q3gud_im`) rather than Q4, and its routed experts are repacked expert-major inside the same `.gguf`. The **~16.6 GB** above is that one file (14.4 GB) + `mmproj` (1.1 GB); plan for ~17 GB of free storage. Because the experts are streamed from SSD on demand rather than held in RAM, this variant also needs **fast internal storage** — see §2.4.
-* All three demos default to a context window of 4K tokens. Larger contexts will increase the KV-cache footprint roughly linearly, so on a borderline device you may need to lower it.
+* All three demos default to a context window of 4K tokens. MiniCPM5-15B-A2.5B (iOS) uses 8K (about 224 MB of KV cache); when it fills up, the app asks you to start a new chat. Larger contexts will increase the KV-cache footprint roughly linearly, so on a borderline device you may need to lower it.
 * On Android / HarmonyOS, devices with 8 GB+ RAM are strongly recommended for V 2.6. On iOS, V 2.6 has been validated on iPhone 15 Pro / 16 series and recent iPads with M-series chips; older 6 GB devices may swap heavily.
 * MiniCPM-V 4.7 35B-A3B has been validated on a 12 GB iPhone 17 Pro Max. On devices with less RAM the app automatically falls back to a **smaller expert cache**, which works but is considerably slower.
 
@@ -309,7 +312,36 @@ Download the language model file (e.g., `MiniCPM5-1B-Q4_K_M.gguf`) from the repo
 
 Download the language model file (e.g., `MiniCPM5-2B-Q4_K_M.gguf`) from the repository. MiniCPM5 is text-only, so no `mmproj` is required.
 
-### 2.7 VoxCPM2 GGUF Files (text-to-speech)
+### 2.7 MiniCPM5-15B-A2.5B GGUF Files (text-only MoE, iOS)
+
+MiniCPM5-15B-A2.5B is a text-only thinking MoE model (15B total / 2.5B active, 160 routed experts, top-16).
+
+#### Download
+
+* HuggingFace: [openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
+* ModelScope: [OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF](https://modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-GGUF)
+
+The app downloads both files itself (Settings → MiniCPM5-15B-A2.5B → **Download All**). To copy them in by hand, put them under `Documents/MiniCPM5-15B-A2.5B/`:
+
+| File | Size | Notes |
+| --- | --- | --- |
+| `MiniCPM5-15B-A2.5B-Q3_gud-LES.gguf` | ~6.8 GB | Main model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. Standard `llama.cpp` cannot load this layout. |
+| `MiniCPM5-15B-A2.5B-predictor.gguf` | ~71 MB | Expert predictor, optional. Trained on the same checkpoint. |
+
+#### Inference modes
+
+Settings → Feature settings → **Inference mode** switches between two ways of running the same file. Switching reloads the model.
+
+* **Memory saver** (default): routed experts are read from flash on demand into a fixed per-layer window. The app's Metal memory stays at about 4 GB. Speed depends on how many experts are already cached or prefetched.
+* **Fastest**: the whole file is memory-mapped and the OS page cache manages it. Faster decode, but memory use follows the system's page cache. Not recommended on 8 GB devices: the whole model does not fit, and the phone may restart (the app marks it as not recommended and asks before switching).
+
+Measured with 128-token generations (top-k 16, Q3_gud): about 30 t/s (memory saver) / 52 t/s (fastest) on a 12 GB iPhone 18 Pro Max, and about 10 t/s (memory saver) on an 8 GB iPhone 17, where most expert reads go to flash because the OS page cache is small.
+
+#### Expert predictor
+
+In memory-saver mode the engine prefetches the experts it expects the next layer to use. With the predictor file present (and the **Expert predictor** switch on) it uses the trained predictor, which has a higher hit rate; without it, it falls back to the model's own next-layer router. The predictor only changes *which* experts are prefetched — the output is identical either way. The settings page shows when the predictor file is missing, and the model page can download it on its own.
+
+### 2.8 VoxCPM2 GGUF Files (text-to-speech)
 
 VoxCPM2 is a ~2B-parameter text-to-speech model. It consists of two GGUF files:
 
@@ -325,7 +357,7 @@ VoxCPM2 supports 30+ languages and 9 Chinese dialects. It can generate speech fr
 
 After downloading, place both `.gguf` files in the app's **Documents** directory (iOS) or in the per-model folder under `{ExternalFilesDir}/models/` (Android / HarmonyOS). You can also download them directly inside the app via **Model Manager**. Once models are downloaded, select VoxCPM2 and the app switches to the TTS interface automatically.
 
-### 2.8 MiniCPM-OCR 1.0 Files (document OCR, iOS & Android)
+### 2.9 MiniCPM-OCR 1.0 Files (document OCR, iOS & Android)
 
 MiniCPM-OCR 1.0 turns a photo, screenshot or PDF page into Markdown: it detects layout blocks first, then runs the vision-language model on each crop and stitches the results back into reading order (headings, paragraphs, tables, formulas and seals).
 

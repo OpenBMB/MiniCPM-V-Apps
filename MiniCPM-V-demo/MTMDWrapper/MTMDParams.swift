@@ -28,6 +28,11 @@ import llama
 
     /// 温度参数
     public let temperature: Float
+    /// 纯文本路径的采样参数（多模态路径不读）。topP 0 = 用 bridge 默认（0.95）；
+    /// minP 0 = 关闭；repeatPenalty 1.0 = 关闭。
+    public let topP: Float
+    public let minP: Float
+    public let repeatPenalty: Float
 
     /// 是否使用 GPU
     public let useGPU: Bool
@@ -138,6 +143,9 @@ import llama
         nCtx: Int = 4096,
         nThreads: Int = 4,
         temperature: Float = 0.7,
+        topP: Float = 0,
+        minP: Float = 0,
+        repeatPenalty: Float = 1.0,
         useGPU: Bool = true,
         mmprojUseGPU: Bool = true,
         warmup: Bool = true,
@@ -158,6 +166,9 @@ import llama
         self.nCtx = nCtx
         self.nThreads = nThreads
         self.temperature = temperature
+        self.topP = topP
+        self.minP = minP
+        self.repeatPenalty = repeatPenalty
         self.useGPU = useGPU
         self.mmprojUseGPU = mmprojUseGPU
         self.warmup = warmup
@@ -193,6 +204,9 @@ import llama
         params.n_ubatch              = Int32(nUbatch)
         params.n_threads             = Int32(nThreads)
         params.temperature           = temperature
+        params.top_p                 = topP
+        params.min_p                 = minP
+        params.repeat_penalty        = repeatPenalty
         params.use_gpu               = useGPU
         params.mmproj_use_gpu        = mmprojUseGPU
         params.warmup                = warmup

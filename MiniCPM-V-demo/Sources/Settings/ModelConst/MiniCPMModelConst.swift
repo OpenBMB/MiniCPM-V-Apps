@@ -602,7 +602,7 @@ struct MiniCPMV47Const {
     /// 窗口分「缓存区 c（跨 token LRU）」与「预读区 K（下层预测重填）」。
     /// 同样内存下缓存 slot 更值钱，但 K 不能归零（少量预读补冷启动），K=4 是甜点。
     /// 预算 = 余量 - reserve，(c+K) = 预算 / (每 slot 字节 × 层数)。
-    static func maxCFromBudget(bytesPerSlot: Int64, kSlots: Int) -> Int {
+    static func maxCFromBudget(bytesPerSlot: Int64, kSlots: Int, reserveMiBOverride: Int? = nil) -> Int {
         let available = Int64(MBDeviceMemoryProbe.availableProcessBytes)
         let footprint = Int64(MBDeviceMemoryProbe.footprintBytes)
         let ceilingGiB = decodeWindowMemCeilingGiB()
@@ -612,7 +612,7 @@ struct MiniCPMV47Const {
         guard headroom > 0 else { return 0 }
 
         let usesMmap = !ProcessInfo.processInfo.arguments.contains("-moeNoMmap")
-        let reserve: Int64 = (Int64(decodeWindowMemReserveMiB() + decodeWindowDsparkReserveMiB())
+        let reserve: Int64 = (Int64((reserveMiBOverride ?? decodeWindowMemReserveMiB()) + decodeWindowDsparkReserveMiB())
                               + (usesMmap ? 0 : 1_600)) * 1024 * 1024
         let budget = headroom - reserve
         guard budget > 0 else { return 0 }
@@ -626,7 +626,11 @@ struct MiniCPMV47Const {
         return Int(cacheSlots)
     }
 
-    static func decodeWindow(modelDir: URL) -> Int {
+    /// `requestedC` / `kSlotsOverride`：给不读 V4.7 设置的模型（MiniCPM5-15B-A2.5B）传自己的默认值；
+    /// nil = 用设置页的 c 与预读深度（V4.7 的行为，不变）。
+    /// `reserveMiBOverride`：替代 V4.7 的常驻预留（它按 V4.7 的 KV 算），给 KV 大小不同的模型用。
+    static func decodeWindow(modelDir: URL, requestedC: Int? = nil, kSlotsOverride: Int? = nil,
+                             reserveMiBOverride: Int? = nil) -> Int {
         // 启动参数优先，供实验用（与 slotBank / nUbatch 同一约定）。
         if let i = ProcessInfo.processInfo.arguments.firstIndex(of: "-moeDecodeWindow"),
            i + 1 < ProcessInfo.processInfo.arguments.count,
@@ -636,14 +640,16 @@ struct MiniCPMV47Const {
 
         // 配合预读时，模型侧每层张量宽度 = c + K；这里算的是**总宽度**，
         // 运行时再按 K 切分成 [缓存区 | 预读区]。
-        let kSlots = decodeWindowPrefetchSlots()   // 默认 4；预读关时为 0
+        let kSlots = kSlotsOverride ?? decodeWindowPrefetchSlots()   // 默认 4；预读关时为 0
 
         guard let bytesPerSlot = bytesPerSlot(at: modelDir), bytesPerSlot > 0 else {
             return 0
         }
 
         // 用户设的 c 仍要过预算闸：不扣 reserve 会挤掉 mmproj 等常驻，甚至卡死整机。
-        let requested = clampCacheWindowC(cacheWindowC())
+        // 自带默认 c 的模型（requestedC）不受 V4.7 的设备上限约束，只受下面的预算闸约束。
+        let maxC: Int? = requestedC
+        let requested = clampCacheWindowC(requestedC ?? cacheWindowC(), maxC: maxC)
         // c=0：关掉整扇专家窗口（引擎语义），不走预算夹紧、也不加预读宽度。
         if requested == 0 {
             let line = "[MODEL] decode window: c=0 (window off)"
@@ -651,10 +657,11 @@ struct MiniCPMV47Const {
             NSLog("%@", line)
             return 0
         }
-        let budgetMax = maxCFromBudget(bytesPerSlot: bytesPerSlot, kSlots: kSlots)
+        let budgetMax = maxCFromBudget(bytesPerSlot: bytesPerSlot, kSlots: kSlots,
+                                       reserveMiBOverride: reserveMiBOverride)
         var c: Int
         if budgetMax > 0 {
-            c = clampCacheWindowC(min(requested, budgetMax))
+            c = clampCacheWindowC(min(requested, budgetMax), maxC: maxC)
             if c != requested {
                 print("[MODEL] 缓存 c=\(requested) 超出预算允许的 \(budgetMax)"
                       + "（预算已扣掉 reserve）→ 夹到 c=\(c)")
@@ -740,11 +747,13 @@ struct MiniCPMV47Const {
         return minEnabledCacheWindowC * 2
     }
 
-    static func clampCacheWindowC(_ raw: Int) -> Int {
+    /// `maxC`：替代按设备的上限。`maxCacheWindowCForDevice` 是按 V4.7 的 slot 大小定的，
+    /// slot 更小的模型（MiniCPM5-15B-A2.5B）传自己的上限，内存由预算闸兜底。
+    static func clampCacheWindowC(_ raw: Int, maxC: Int? = nil) -> Int {
         // 0 是合法值（关窗口）。1–3 靠向 0；4–7 抬到 8（一步至少装下本层专家数）。
         if raw < cacheWindowStepC / 2 { return 0 }
         let stepped = (raw / cacheWindowStepC) * cacheWindowStepC
-        return min(max(stepped, minEnabledCacheWindowC), maxCacheWindowCForDevice())
+        return min(max(stepped, minEnabledCacheWindowC), maxC ?? maxCacheWindowCForDevice())
     }
 
     /// 设置页显示的当前值。没写过 key 才用设备默认档；显式写成 0 就是关窗口。
@@ -1193,8 +1202,9 @@ struct MiniCPMV47Const {
             return [ModelProblem(file: modelURL.lastPathComponent, required: 0, actual: -1)]
         }
 
-        let expected = downloadFiles.first(where: { $0.localName == modelURL.lastPathComponent })?.bytes
-            ?? downloadFiles.first?.bytes ?? 0
+        // 只和**同名**下载项比大小。`-moeModel` 指向别的模型（例如 MiniCPM5 的 LES 单文件）
+        // 时没有对应的下载项，拿 LCO 的 15.5 GB 去比必然判成「不完整」。
+        let expected = downloadFiles.first(where: { $0.localName == modelURL.lastPathComponent })?.bytes ?? 0
         if expected > 0 && size < expected {
             return [ModelProblem(file: modelURL.lastPathComponent, required: expected, actual: size)]
         }
@@ -1237,3 +1247,195 @@ struct MiniCPMV47Const {
         \(documentsDirName)/\(mmprojFileName)
         """
     }}
+
+/// MiniCPM5-15B-A2.5B MoE（`minicpm5moe` 架构：28 层，第 0 层 dense，160 专家 top-16），纯文本 thinking 模型。
+///
+/// 权重是 LES 单文件 GGUF（专家内联在文件里，见 llama.cpp-omni 的 docs/les/les-gguf-format.md），
+/// 同一个文件可以走 slot（专家按需流式读取）或整份 mmap，见 `InferenceMode`。
+///
+/// 精度见 `Precision`，每个精度一个仓库、设置里一行。目前只有 Q3_gud：路由专家 Q3_K，其余按
+/// Q4_K_M（一半层的 attn_v / ffn_down_shexp 为 Q6_K，output Q6_K）。gguf 头里的
+/// `general.file_type` 写的是 Q4_K_M，分不出这一点，所以精度写在文件名里。
+///
+/// 专家预测器（predictor）是同一个仓库里的单独小文件，在同一个 checkpoint 上训练。
+/// 有它时 slot 方式的预读用它来猜下一层的专家，没有时退回 LES 的「下一层 router」。
+/// 它只影响预读哪些专家，不改变输出。
+struct MiniCPM5_15B_A2_5BConst {
+    static let userDefaultsKey = "MiniCPM5_15B_A2_5B"
+    static let displayedName = "MiniCPM5-15B-A2.5B"
+    /// 各精度共用一个目录：predictor 只有一份。
+    static let documentsDirName = "MiniCPM5-15B-A2.5B"
+
+    // ── 精度 ──────────────────────────────────────────────────────────────────
+    // 每个精度在设置的模型列表里是独立的一行（各自的下载页与状态），选中哪一行就加载哪个文件。
+    // 目前只发 Q3_gud。Q4_K_M（9.1 GB）在 12 GB iPhone 上整份 mmap 会被系统杀掉，省内存方式也
+    // 比 Q3_gud 慢约 40%，所以没有上。
+    enum Precision: String, CaseIterable {
+        /// 路由专家 Q3_K，其余按 Q4_K_M。
+        case q3gud
+
+        var label: String {
+            switch self {
+            case .q3gud: return "Q3_gud"
+            }
+        }
+        /// 设置列表 / 首页标题里的名字。
+        var displayedName: String { "\(MiniCPM5_15B_A2_5BConst.displayedName) \(label)" }
+        var modelFileName: String { "MiniCPM5-15B-A2.5B-\(label)-LES.gguf" }
+        var modelBytes: Int64 {
+            switch self {
+            case .q3gud: return 6_748_827_648
+            }
+        }
+        /// 每个精度一个仓库，仓库里同时有主模型和 predictor，文件平铺在根目录。
+        var hfBase: String { "https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-\(label)-GGUF/resolve/main" }
+        var msBase: String { "https://www.modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-\(label)-GGUF/resolve/master" }
+    }
+
+    static let precisionDefaultsKey = "minicpm5_15b_a2_5b_precision"
+    /// 当前选中的精度（设置里点哪一行「使用此模型」就是哪个），默认 Q3_gud。
+    static func selectedPrecision() -> Precision {
+        Precision(rawValue: UserDefaults.standard.string(forKey: precisionDefaultsKey) ?? "") ?? .q3gud
+    }
+    static func setSelectedPrecision(_ p: Precision) {
+        UserDefaults.standard.set(p.rawValue, forKey: precisionDefaultsKey)
+    }
+    static var currentDisplayedName: String { selectedPrecision().displayedName }
+
+    /// predictor 在 checkpoint 上训练，和量化精度无关，各精度共用。按优先级排列：找到的第一个生效。
+    static let predictorFileNames = ["MiniCPM5-15B-A2.5B-predictor.gguf"]
+    static let predictorBytes: Int64 = 70_802_272
+
+    /// 主模型 + predictor 一起下载。只有主模型也能用（predictor 缺失时预读退回 LES）。
+    /// 字节数用于下载进度和判断下载残片；换文件时要一起改。
+    static func downloadFiles(for p: Precision) -> [ModelDownloadFile] {
+        [
+            ModelDownloadFile(remotePath: p.modelFileName, localName: p.modelFileName, bytes: p.modelBytes),
+            ModelDownloadFile(remotePath: predictorFileNames[0], localName: predictorFileNames[0],
+                              bytes: predictorBytes),
+        ]
+    }
+    /// 上下文窗口。KV cache 按 n_ctx 一次性分配：28 层 × 2 个 KV head × 128 维 × K/V × F16
+    /// = 28 KiB/token，8k 约 224 MiB。模型本身支持 512k，但手机放不下；KV 是 App 自己的内存，
+    /// 占得越多留给 page cache（专家读取靠它）的越少，所以只给 8k。写满后提示新建对话。
+    static let defaultNCtx = 8192
+    static let kvBytesPerToken = 28 * 2 * 128 * 2 * 2
+    /// 窗口预算里的常驻预留（MiB）。从 V4.7 的 2400 基线出发（见 decodeWindowMemReserveMiB 的分解）：
+    /// 去掉本模型没有的 mmproj（1.21 GiB ≈ 1240 MiB）和 V4.7 的 2k KV（40 MiB），换成本模型按
+    /// defaultNCtx 算的 KV。8k 时约 1344 MiB，8 GB 机型上预算也能给到 c64。
+    static var windowReserveMiB: Int {
+        2400 - 1240 - 40 + Int((Double(defaultNCtx * kvBytesPerToken) / 1_048_576.0).rounded())
+    }
+    /// 采样参数（思考 / 非思考一样）：temperature 1.0、top_p 0.95、min_p 0，不加重复惩罚。
+    /// 推荐配置里的 repetition_penalty 1.05 没有照搬：llama.cpp 的 penalties 只看最近生成的 64 个
+    /// token，HF 看整段上下文，两者语义不同。
+    static let sampling: (temperature: Float, topP: Float, minP: Float, repeatPenalty: Float) = (1.0, 0.95, 0.0, 1.0)
+
+    // ── 推理方式 ────────────────────────────────────────────────────────────────
+    // 同一个 LES 文件两种跑法（引擎侧：slot bank > 0 走 slot，= 0 整个文件 mmap）。
+    enum InferenceMode: String, CaseIterable {
+        /// 专家按需从闪存读进 App 自己的窗口：内存占用固定（约 4 GB），速度取决于命中。
+        case slot
+        /// 整个模型映射进内存，由系统 page cache 管理：最快，但内存占用随系统状况变化。
+        case mmap
+
+        var displayName: String {
+            switch self {
+            case .slot: return L.Settings.minicpm5ModeSlot.loc
+            case .mmap: return L.Settings.minicpm5ModeMmap.loc
+            }
+        }
+    }
+    static let inferenceModeDefaultsKey = "minicpm5_15b_a2_5b_inference_mode"
+    /// 启动参数 `-moeFullMmap` 强制 mmap（基准用）；否则读设置，默认 slot。
+    static func inferenceMode() -> InferenceMode {
+        if ProcessInfo.processInfo.arguments.contains("-moeFullMmap") { return .mmap }
+        let raw = UserDefaults.standard.string(forKey: inferenceModeDefaultsKey) ?? ""
+        return InferenceMode(rawValue: raw) ?? .slot
+    }
+    static func setInferenceMode(_ mode: InferenceMode) {
+        UserDefaults.standard.set(mode.rawValue, forKey: inferenceModeDefaultsKey)
+    }
+    /// 「最快」方式需要的剩余内存：整个模型文件要放进内存，再留约 0.5 GB 给计算 buffer 和 KV。
+    /// 不够时 GPU 第一次读权重就会被系统杀掉。
+    static func mmapRequiredBytes(precision: Precision = selectedPrecision()) -> Int64 {
+        precision.modelBytes + 512 * 1024 * 1024
+    }
+    /// 物理内存小于「模型文件 + 4 GB」时不推荐「最快」：8 GB 的 iPhone 17 上整份 mmap
+    /// 第一次 prefill 就把系统内存压垮（整机重启，不只是 App 被杀）。仍允许选，选前要确认。
+    static func mmapDiscouraged(precision: Precision = selectedPrecision()) -> Bool {
+        MBDeviceMemoryProbe.physicalBytes < UInt64(precision.modelBytes) + 4 * 1024 * 1024 * 1024
+    }
+
+    // ── 默认运行配置（不读 V4.7 的 slot / 窗口 / 预读设置，免得每次手调）──────────
+    // 启动参数 -moeDecodeWindow / -moeLookaheadDepth / -moeSlotBank 仍可覆盖，供实验用。
+    /// 每层缓存槽数 c。窗口是 App 自己的内存（wired），越大 page cache 越小。
+    /// iPhone 实测 c32 / c48 / c64 中 c64 最快：page cache 紧张时窗口大更划算。
+    static let defaultCacheWindowC = 64
+    /// 预读深度 K = top-k（16）：predictor / LES 每层预读 16 个。
+    static let defaultLookaheadDepth = 16
+    /// prefill 共享 bank。bank ≥ 256 时桥接层不再按 bank / top-k 给 ubatch 封顶，长 prompt 可用到 1024
+    /// （长 prompt prefill 快一个数量级）；bank 64 时 ub 被压到 4。引擎让 bank 与 decode 窗口
+    /// 共用内存，所以 bank 不额外占内存，512 与 256 实测完全一样。
+    static let defaultSlotBank = 256
+
+    private static func intArg(_ name: String) -> Int? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+        return Int(args[i + 1])
+    }
+    static func cacheWindowC() -> Int { max(0, intArg("-moeDecodeWindow") ?? defaultCacheWindowC) }
+    static func lookaheadDepth() -> Int {
+        if ProcessInfo.processInfo.arguments.contains("-moeNoPrefetch") || inferenceMode() == .mmap { return 0 }
+        return min(max(intArg("-moeLookaheadDepth") ?? defaultLookaheadDepth, 0), 16)
+    }
+    static func slotBank() -> Int { max(16, intArg("-moeSlotBank") ?? defaultSlotBank) }
+
+    /// 设置页的 predictor 开关。默认开；关掉或没有 predictor 文件时 lookahead 用 LES。
+    /// 改了要重载模型才生效（引擎在第一次建图时读 LLAMA_MOE_PREDICTOR）。
+    static let predictorEnabledDefaultsKey = "minicpm5_15b_a2_5b_predictor_enabled"
+    static func predictorEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: predictorEnabledDefaultsKey) as? Bool ?? true
+    }
+    static func setPredictorEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: predictorEnabledDefaultsKey)
+    }
+
+    struct Artifacts {
+        let modelURL: URL
+        /// nil = 没有 predictor 文件，lookahead 用 LES。
+        let predictorURL: URL?
+    }
+
+    /// 找指定精度（默认当前选中的精度）的主模型；predictor 各精度共用。
+    /// 主模型的完整性校验，做法同 `MiniCPMV47Const.modelProblems`：header 能解析出 `les.moe.layout`，
+    /// 且大小不小于发版文件（截断的尾部正好是专家区，只看 header 发现不了）。下载完成后和加载前各调一次。
+    static func modelProblems(precision: Precision = selectedPrecision(), at modelURL: URL) -> [MiniCPMV47Const.ModelProblem] {
+        let name = modelURL.lastPathComponent
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: modelURL.path)[.size]) as? Int64 else {
+            return [MiniCPMV47Const.ModelProblem(file: name, required: precision.modelBytes, actual: -1)]
+        }
+        var nLayer: Int32 = 0
+        var nExpert: Int32 = 0
+        var perSlot: Int64 = 0
+        guard mb_moe_experts_geometry(modelURL.path, &nLayer, &nExpert, &perSlot) != 0 else {
+            return [MiniCPMV47Const.ModelProblem(file: name, required: precision.modelBytes, actual: size)]
+        }
+        if size < precision.modelBytes {
+            return [MiniCPMV47Const.ModelProblem(file: name, required: precision.modelBytes, actual: size)]
+        }
+        return []
+    }
+
+    static func resolveArtifacts(precision: Precision = selectedPrecision(),
+                                 in documentsDirectory: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]) -> Artifacts? {
+        let dir = documentsDirectory.appendingPathComponent(documentsDirName)
+        let fm = FileManager.default
+        let model = dir.appendingPathComponent(precision.modelFileName)
+        guard fm.fileExists(atPath: model.path) else { return nil }
+        let predictor = predictorFileNames
+            .map { dir.appendingPathComponent($0) }
+            .first { fm.fileExists(atPath: $0.path) }
+        return Artifacts(modelURL: model, predictorURL: predictor)
+    }
+}
