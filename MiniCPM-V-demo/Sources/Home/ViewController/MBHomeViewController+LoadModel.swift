@@ -184,6 +184,8 @@ extension MBHomeViewController {
                     // MiniCPM5-15B-A2.5B：bank / 窗口 c / 预读深度用 MiniCPM5_15B_A2_5BConst 自己的默认值，
                     // 只有 n_ubatch 沿用 V4.7 的设置；窗口预算按这份文件自己的 les.moe.layout 算。
                     let mode = MiniCPM5_15B_A2_5BConst.inferenceMode()
+                    print(MiniCPM5_15B_A2_5BConst.mmapDecisionReport()
+                          + " switch=\(mode.rawValue) auto=\(MiniCPM5_15B_A2_5BConst.inferenceModeIsDefault())")
                     // 预测头内联在主模型里，这里只决定用不用它；只在 slot 方式下有意义（它决定预读哪些专家）。
                     let usePredictor = mode == .slot && MiniCPM5_15B_A2_5BConst.predictorEnabled()
                     print("MTMDWrapperExample: MiniCPM5-15B-A2.5B mode=\(mode.rawValue) predictor=\(usePredictor)")

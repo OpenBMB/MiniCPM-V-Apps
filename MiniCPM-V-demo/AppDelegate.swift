@@ -20,6 +20,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         MiniCPMV47Const.migrateDsparkDefaultOffIfNeeded()
         // 15B 的「最快」模式同理：上次整份 mmap 被系统杀掉时退回「省内存」。
         MiniCPM5_15B_A2_5BConst.applyMmapCrashRecoveryIfNeeded()
+        if ProcessInfo.processInfo.arguments.contains("-moeInferenceAuto") {
+            print("[MODEL] -moeInferenceAuto：已清掉保存的推理方式，回到本机自动判定")
+            MiniCPM5_15B_A2_5BConst.resetInferenceMode()
+        }
 
         // c 的默认值按设备内存分档（仅 V47 用 decode window）。
         if UserDefaults.standard.string(forKey: "current_selected_model") == MiniCPMV47Const.userDefaultsKey {

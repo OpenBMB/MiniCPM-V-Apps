@@ -1386,6 +1386,12 @@ struct MiniCPM5_15B_A2_5BConst {
             || ProcessInfo.processInfo.arguments.contains("-moeMemorySaver") { return false }
         return UserDefaults.standard.string(forKey: inferenceModeDefaultsKey) == nil
     }
+
+    /// 救援用：丢掉存下来的选择，回到「本机自动判定」。配合 `-moeInferenceAuto` 启动参数，
+    /// 用于某个显式值把 App 弄成「一加载就被系统杀掉」、连设置页都进不去的场景。
+    static func resetInferenceMode() {
+        UserDefaults.standard.removeObject(forKey: inferenceModeDefaultsKey)
+    }
     static func setInferenceMode(_ mode: InferenceMode) {
         UserDefaults.standard.set(mode.rawValue, forKey: inferenceModeDefaultsKey)
     }
@@ -1426,15 +1432,66 @@ struct MiniCPM5_15B_A2_5BConst {
         ud.synchronize()
         print("[MODEL] 上次「最快」模式没跑完（可能被系统杀掉）→ 已切回「省内存」")
     }
-    /// 「最快」方式需要的剩余内存：整个模型文件要放进内存，再留约 4 GB 给计算 buffer、KV 和系统。
-    /// 与 `mmapDiscouraged` 用同一个口径，弹窗里给出的数字才对得上门槛。
+    /// 「最快」方式需要多少字节：整份权重进内存，外加 KV cache 和计算缓冲。
+    ///
+    /// 权重是 mmap 进来的文件页，被读到就计入本进程 footprint（实测 iPhone 18 Pro Max
+    /// 上 metal 从 4.23 GiB 涨到 6.83 GiB，约等于文件大小）。KV 按 `defaultNCtx` 一次性
+    /// 分配，计算缓冲由 n_ubatch 决定（实测 ub=128 时 MTL0 约 65 MiB）。
     static func mmapRequiredBytes(precision: Precision = selectedPrecision()) -> Int64 {
-        precision.modelBytes + 4 * 1024 * 1024 * 1024
+        precision.modelBytes + mmapOverheadBytes()
     }
-    /// 物理内存小于「模型文件 + 4 GB」时不推荐「最快」：8 GB 的 iPhone 17 上整份 mmap
-    /// 第一次 prefill 就把系统内存压垮（整机重启，不只是 App 被杀）。仍允许选，选前要确认。
+
+    /// 权重之外还必须占用、且无法被系统回收的部分：KV + 计算缓冲 + 余量。
+    static func mmapOverheadBytes() -> Int64 {
+        let kv = Int64(Double(defaultNCtx * kvBytesPerToken).rounded())
+        let compute: Int64 = 256 * 1024 * 1024   // ub 自适应最大档留的余量
+        return kv + compute
+    }
+
+    /// 本进程现在**还能分配**多少字节。`os_proc_available_memory()` 就是 jetsam
+    /// 判定时看的剩余额度；拿不到时（模拟器 / macOS）退回「物理 - 已占用 - 系统保留」。
+    static func availableMemoryBytes() -> Int64 {
+        let avail = Int64(MBDeviceMemoryProbe.availableProcessBytes)
+        if avail > 0 { return avail }
+        let phys = Int64(MBDeviceMemoryProbe.physicalBytes)
+        let foot = Int64(MBDeviceMemoryProbe.footprintBytes)
+        return max(0, phys - systemReserveBytes(phys: phys) - foot)
+    }
+
+    /// 留给系统和其他进程的部分：物理内存的 1/4，且不少于 1.5 GiB。
+    private static func systemReserveBytes(phys: Int64) -> Int64 {
+        let gib: Int64 = 1024 * 1024 * 1024
+        return max(phys / 4, gib * 3 / 2)
+    }
+
+    /// 装不下整份模型时才退回按需读取（专家走 LES 流式）。
+    ///
+    /// 两个条件都要满足，只用其中一个都会做错决定：
+    ///
+    /// 1. **权重放得进整机**：`模型 + 额外开销 + 系统保留 <= 物理内存`。这条挡的是 8 GB
+    ///    机型（实测整份 mmap 会把系统压垮、手机重启），而不是 12 GB。
+    /// 2. **额外开销能立刻分配**：`KV + 计算缓冲 <= 当前可分配`。这条挡的是「这台机器本来
+    ///    就在内存紧张」的情况 —— 12 GB 机型加载前可分配约 5.8 GiB，够 KV 和计算缓冲，
+    ///    不够也不用放弃，因为 mmap 的文件页是可回收的 clean page。
+    ///
+    /// 之所以第 2 条只比 KV + 计算、不比整个文件：实测 12 GB 机型可分配只有 5.8 GiB，
+    /// 而整份 mmap 实际吃到 6.83 GiB 仍然正常 —— 文件页被回收只是变慢，不会被 jetsam
+    /// 判定为超额。
     static func mmapDiscouraged(precision: Precision = selectedPrecision()) -> Bool {
-        MBDeviceMemoryProbe.physicalBytes < UInt64(precision.modelBytes) + 4 * 1024 * 1024 * 1024
+        let phys    = Int64(MBDeviceMemoryProbe.physicalBytes)
+        let fitsAll = precision.modelBytes + mmapOverheadBytes() + systemReserveBytes(phys: phys) <= phys
+        let overheadFits = mmapOverheadBytes() <= availableMemoryBytes()
+        return !(fitsAll && overheadFits)
+    }
+
+    /// 判定依据，供日志与设置页说明用。`nil` 表示自动判定没被启动参数覆盖。
+    static func mmapDecisionReport(precision: Precision = selectedPrecision()) -> String {
+        let mib: (Int64) -> String = { String(format: "%.0f MiB", Double($0) / 1048576.0) }
+        let phys = Int64(MBDeviceMemoryProbe.physicalBytes)
+        return "[MODEL] mmap check: model=\(mib(precision.modelBytes))"
+            + " overhead=\(mib(mmapOverheadBytes())) limited=\(mib(mmapRequiredBytes(precision: precision)))"
+            + " physical=\(mib(phys)) available=\(mib(availableMemoryBytes()))"
+            + " -> \(mmapDiscouraged(precision: precision) ? "experts on demand" : "full mmap")"
     }
 
     // ── 默认运行配置（不读 V4.7 的 slot / 窗口 / 预读设置，免得每次手调）──────────
