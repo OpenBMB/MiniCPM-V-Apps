@@ -194,9 +194,15 @@ import llama
     }()
     
     /// 选择图片
+    ///
+    /// 图标资源 `image_picker_icon` 是近黑的位图（RGB 28,28,35），在深色背景下会和
+    /// 背景糊成一片。渲染成 template + `mbIconTint`（就是 `.label`）让它跟随主题，
+    /// 和导航栏那几个按钮保持同一套取色。
     lazy var chooseImageButton: UIButton = {
         let btn = UIButton()
-        btn.setImage(UIImage(named: "image_picker_icon"), for: .normal)
+        let icon = UIImage(named: "image_picker_icon")?.withRenderingMode(.alwaysTemplate)
+        btn.setImage(icon, for: .normal)
+        btn.tintColor = UIColor.mbIconTint
         btn.addTarget(self, action: #selector(handleChooseImage), for: .touchUpInside)
         return btn
     }()
@@ -220,9 +226,13 @@ import llama
     }()
 
     /// 录像功能-按钮
+    ///
+    /// 同 `chooseImageButton`：图标是近黑位图，深色模式下会隐形，渲染成 template 跟随主题。
     lazy var captureVideoButton: UIButton = {
         let btn = UIButton()
-        btn.setImage(UIImage(named: "capture_video_icon"), for: .normal)
+        let icon = UIImage(named: "capture_video_icon")?.withRenderingMode(.alwaysTemplate)
+        btn.setImage(icon, for: .normal)
+        btn.tintColor = UIColor.mbIconTint
         btn.addTarget(self, action: #selector(handleCaptureVideo), for: .touchUpInside)
         return btn
     }()
