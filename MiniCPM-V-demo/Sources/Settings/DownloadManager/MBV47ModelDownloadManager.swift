@@ -226,6 +226,9 @@ final class MBV47ModelDownloadManager: NSObject {
     /// 最后一条只要求**至少一个源明确说不存在**，而不是所有源都如此：国内网络下 HF 经常
     /// 直接连不上（连 401 都收不到），而 MS 会明确回 404。这时「MS 说不存在 + HF 连不上」
     /// 的真实结论就是「没开源」，不该因为 HF 超时而退化成一个笼统的失败。
+    ///
+    /// **某个源一确认能下就立刻返回**，不等其它源超时：国内直连 HF 会卡满超时，
+    /// 若等所有源都回来，用户每次点下载都要先白等十几秒才看到进度条。
     private func probeAvailability(of file: ModelDownloadFile,
                                    completion: @escaping (Bool) -> Void) {
         let urls = sourceURLs(for: file).map(\.url)
@@ -234,47 +237,60 @@ final class MBV47ModelDownloadManager: NSObject {
             return
         }
 
-        let group = DispatchGroup()
         let lock = NSLock()
-        var sawReachable = false   // 任一源能拿到
-        var sawDefinitelyAbsent = false   // 任一源明确 404/401/403
+        var sawReachable = false           // 任一源能拿到
+        var sawDefinitelyAbsent = false    // 任一源明确 404/401/403
+        var pending = urls.count           // 还没回来的源
+        var finished = false               // 已给出结论，后续回调一律丢弃
+
+        /// 收一个结果。能下就立刻返回；「未公开」必须等所有源都回来（要确认没有可用的）。
+        func settle(_ reachable: Bool?, _ absent: Bool, verdict: @escaping (Bool) -> Void) {
+            lock.lock()
+            if finished { lock.unlock(); return }
+            if reachable == true { sawReachable = true }
+            if absent { sawDefinitelyAbsent = true }
+            pending -= 1
+            let decideNow = sawReachable            // 有一个能下就够了
+            let allBack = pending <= 0
+            let notPublished = !sawReachable && sawDefinitelyAbsent
+            if decideNow || allBack { finished = true }
+            lock.unlock()
+
+            if decideNow {
+                verdict(false)
+            } else if allBack {
+                verdict(notPublished)
+            }
+        }
 
         for urlString in urls {
-            guard let url = URL(string: urlString) else { continue }
+            guard let url = URL(string: urlString) else {
+                settle(nil, false, verdict: completion)
+                continue
+            }
             var req = URLRequest(url: url)
             req.httpMethod = "HEAD"
-            req.timeoutInterval = 15
+            req.timeoutInterval = 8     // 国内直连 HF 会卡满；8 秒足够判断「连不上」
             req.cachePolicy = .reloadIgnoringLocalCacheData
 
-            group.enter()
             URLSession.shared.dataTask(with: req) { _, response, error in
-                defer { group.leave() }
-                lock.lock()
-                defer { lock.unlock() }
                 guard let http = response as? HTTPURLResponse else {
                     // 连不上（DNS/超时/被墙）：不构成「文件不存在」的证据。
                     if let error = error {
-                        debugLog("-->> 探测: \(urlString.prefix(80)) 无响应（\(error.localizedDescription)）")
+                        debugLog("-->> 探测: \(String(urlString.prefix(80))) 无响应（\(error.localizedDescription)）")
                     }
+                    settle(nil, false, verdict: completion)
                     return
                 }
                 switch http.statusCode {
                 case 200, 206:
-                    sawReachable = true
+                    settle(true, false, verdict: completion)
                 case 401, 403, 404:
-                    sawDefinitelyAbsent = true
+                    settle(nil, true, verdict: completion)
                 default:
-                    break                // 5xx 等：服务在，但这次没成，不当作「不存在」
+                    settle(nil, false, verdict: completion)   // 5xx：不当作不存在
                 }
             }.resume()
-        }
-
-        group.notify(queue: .main) {
-            lock.lock()
-            let reachable = sawReachable
-            let absent = sawDefinitelyAbsent
-            lock.unlock()
-            completion(!reachable && absent)
         }
     }
 
@@ -440,7 +456,10 @@ final class MBV47ModelDownloadManager: NSObject {
                     self.attempts.removeAll()
                 }
                 self.lastFailureWasUnavailable = true
-                self.completionHandler?(self.variant.displayedName, false)
+                // 回调可能来自 URLSession 的线程；completionHandler 的消费者都在改 UI。
+                DispatchQueue.main.async {
+                    self.completionHandler?(self.variant.displayedName, false)
+                }
                 return
             }
             self.pump()
