@@ -318,16 +318,16 @@ MiniCPM5-15B-A2.5B is a text-only thinking MoE model (15B total / 2.5B active, 1
 
 #### Download
 
-* HuggingFace: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
-* ModelScope: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://modelscope.cn/models/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
+* HuggingFace: [openbmb/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF](https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF)
+* ModelScope: [OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF](https://www.modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF)
 
 The app downloads the single file itself (Settings → MiniCPM5-15B-A2.5B → **Download All**). To copy it in by hand, put it under `Documents/MiniCPM5-15B-A2.5B/`:
 
 | File | Size | Notes |
 | --- | --- | --- |
-| `LCO-MiniCPM5-15B-A2_5B-Q3_gud.gguf` | ~6.8 GB | The whole model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. It also carries the trained expert predictor as resident tensors, so there is no second file. Standard `llama.cpp` cannot load this layout. |
+| `MiniCPM5-15B-A2_5B-Q3_gud-LCO.gguf` | ~6.8 GB | The whole model, **required**. LES layout: each routed expert's `gate|up|down` is byte-contiguous inside the file, so it can be read with one `preadv`. It also carries the trained expert predictor as resident tensors, so there is no second file. Standard `llama.cpp` cannot load this layout. |
 
-The `LCO-` prefix marks our own repack: the weights are the upstream BF16 checkpoint quantised to Q3_gud (Q3_K routed experts, otherwise the Q4_K_M recipe) and then repacked expert-major. The packing moves bytes without re-quantising, and `convert_les_gguf.py verify` proves it: every resident tensor and every expert region is byte-identical to the source.
+The `-LCO` suffix marks our own repack: the weights are the upstream BF16 checkpoint quantised to Q3_gud (Q3_K routed experts, otherwise the Q4_K_M recipe) and then repacked expert-major. The packing moves bytes without re-quantising, and `convert_les_gguf.py verify` proves it: every resident tensor and every expert region is byte-identical to the source.
 
 #### Inference modes
 

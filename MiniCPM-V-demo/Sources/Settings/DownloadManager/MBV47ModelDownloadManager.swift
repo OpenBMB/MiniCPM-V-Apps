@@ -171,8 +171,7 @@ final class MBV47ModelDownloadManager: NSObject {
         let caches = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).first ?? ""
         let tmp = NSTemporaryDirectory()
         for f in variant.files {
-            for base in downloadBases {
-                let url = "\(base)/\(remotePath(for: f, under: base))"
+            for (url, expected) in sourceURLs(for: f) {
                 guard let digested = url.md5() else { continue }
                 let ext = URL(string: url)?.pathExtension ?? "bin"
                 let name = "\(digested).\(ext)"
@@ -184,9 +183,9 @@ final class MBV47ModelDownloadManager: NSObject {
                        let s = attrs[.size] as? Int64 {
                         size = s
                     }
-                    if size != f.bytes {
+                    if size != expected {
                         try? fm.removeItem(atPath: path)
-                        debugLog("-->> 清理尺寸不符的下载残留 \(name)（\(size) != \(f.bytes)）")
+                        debugLog("-->> 清理尺寸不符的下载残留 \(name)（\(size) != \(expected)）")
                     }
                 }
             }
@@ -206,6 +205,12 @@ final class MBV47ModelDownloadManager: NSObject {
         base == variant.msBase ? (file.msRemotePath ?? file.remotePath) : file.remotePath
     }
 
+    /// 该文件参与下载的全部地址及各自的期望字节数：主源、备用源，再加旧版镜像。
+    private func sourceURLs(for file: ModelDownloadFile) -> [(url: String, bytes: Int64)] {
+        downloadBases.map { ("\($0)/\(remotePath(for: file, under: $0))", file.bytes) }
+            + file.legacyMirrors.map { ($0.url, $0.bytes) }
+    }
+
     /// 探测「这个文件在各源上到底存不存在」。
     ///
     /// 为什么不能靠下载器报错判断：`FDownLoader` 对 404、连接被拒、超时一律回同一个
@@ -223,8 +228,8 @@ final class MBV47ModelDownloadManager: NSObject {
     /// 的真实结论就是「没开源」，不该因为 HF 超时而退化成一个笼统的失败。
     private func probeAvailability(of file: ModelDownloadFile,
                                    completion: @escaping (Bool) -> Void) {
-        let bases = downloadBases
-        guard !bases.isEmpty else {
+        let urls = sourceURLs(for: file).map(\.url)
+        guard !urls.isEmpty else {
             DispatchQueue.main.async { completion(false) }
             return
         }
@@ -234,8 +239,7 @@ final class MBV47ModelDownloadManager: NSObject {
         var sawReachable = false   // 任一源能拿到
         var sawDefinitelyAbsent = false   // 任一源明确 404/401/403
 
-        for base in bases {
-            let urlString = "\(base)/\(remotePath(for: file, under: base))"
+        for urlString in urls {
             guard let url = URL(string: urlString) else { continue }
             var req = URLRequest(url: url)
             req.httpMethod = "HEAD"
@@ -285,7 +289,8 @@ final class MBV47ModelDownloadManager: NSObject {
             // MS 是单个公共仓库、按模型分子目录存放，路径可能与 HF 不同（见 msRemotePath）。
             backupModelUrl: variant.msBase.isEmpty
                 ? nil
-                : "\(variant.msBase)/\(file.msRemotePath ?? file.remotePath)"
+                : "\(variant.msBase)/\(file.msRemotePath ?? file.remotePath)",
+            extraModelUrls: file.legacyMirrors.map(\.url)
         )
         queue.sync { helpers[file.localName] = h }
         return h

@@ -311,16 +311,16 @@ MiniCPM5-15B-A2.5B 是纯文本的 thinking MoE 模型（总参数 15B / 激活 
 
 #### 下载
 
-* HuggingFace: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
-* ModelScope: [LComni/LCO-MiniCPM5-15B-A2.5B-gguf](https://modelscope.cn/models/LComni/LCO-MiniCPM5-15B-A2.5B-gguf)
+* HuggingFace: [openbmb/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF](https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF)
+* ModelScope: [OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF](https://www.modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-Q3_gud-LCO-GGUF)
 
 App 内可以直接下载这一个文件（设置 → MiniCPM5-15B-A2.5B → **一键下载**）。手动放入时，放到 `Documents/MiniCPM5-15B-A2.5B/` 下：
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| `LCO-MiniCPM5-15B-A2_5B-Q3_gud.gguf` | ~6.8 GB | 完整模型，**必需**。LES 布局：每个路由专家的 `gate|up|down` 在文件里连续存放，一次 `preadv` 就能读完；训练版专家预测器也作为常驻张量放在同一个文件里，所以没有第二个文件。标准 `llama.cpp` 读不了这种布局。 |
+| `MiniCPM5-15B-A2_5B-Q3_gud-LCO.gguf` | ~6.8 GB | 完整模型，**必需**。LES 布局：每个路由专家的 `gate|up|down` 在文件里连续存放，一次 `preadv` 就能读完；训练版专家预测器也作为常驻张量放在同一个文件里，所以没有第二个文件。标准 `llama.cpp` 读不了这种布局。 |
 
-`LCO-` 前缀表示这是我们自己重打包的产物：权重是上游 BF16 checkpoint 量化到 Q3_gud（路由专家 Q3_K，其余按 Q4_K_M 配方）之后再按 expert-major 重排。重排只搬字节、不重新量化，`convert_les_gguf.py verify` 会逐字节证明这一点：常驻张量和每个专家区都与源文件完全一致。
+`-LCO` 后缀表示这是我们自己重打包的产物：权重是上游 BF16 checkpoint 量化到 Q3_gud（路由专家 Q3_K，其余按 Q4_K_M 配方）之后再按 expert-major 重排。重排只搬字节、不重新量化，`convert_les_gguf.py verify` 会逐字节证明这一点：常驻张量和每个专家区都与源文件完全一致。
 
 #### 推理方式
 
