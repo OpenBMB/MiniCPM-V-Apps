@@ -280,11 +280,24 @@ struct MiniCPMModelConst {
 /// `msRemotePath` 是 ModelScope 上的路径，nil = 与 `remotePath` 相同。两者分开是因为两个源
 /// 的目录结构可以不同：HF 是「一模型一仓库」、文件在根目录；MS 是单个公共仓库、按模型分子
 /// 目录存放。只有结构不同时才需要单独指定（目前只有 4.7 35B-A3B）。
+///
+/// `legacyMirrors` 是同一模型早期版本文件的完整地址，与主源 / 备用源一起 race
+/// （见 `MBModelDownloadHelperV2.extraModelUrls`），落盘名仍是 `localName`。
 struct ModelDownloadFile {
     let remotePath: String
     let localName: String
     let bytes: Int64
     var msRemotePath: String? = nil
+    var legacyMirrors: [ModelDownloadMirror] = []
+}
+
+/// 一个额外下载地址及该地址上文件的字节数与 sha256。旧版文件与发版文件权重相同、只是
+/// header 不同，大小可以不一样，所以字节数按地址单独记，清理下载残留时按它比对。
+/// `sha256` 与 `modelSha256` 一样目前只作记录，下载器还没有 hash 校验。
+struct ModelDownloadMirror {
+    let url: String
+    let bytes: Int64
+    let sha256: String
 }
 
 /// MiniCPM-V 4.7 (35a3_hf_v47) MoE — 文本塔 qwen35moe + 视觉塔 minicpmv4_6。
@@ -1298,11 +1311,12 @@ struct MiniCPM5_15B_A2_5BConst {
         }
         /// 列表 / 详情页标题：只有模型名，不含量化档。
         var displayedName: String { MiniCPM5_15B_A2_5BConst.displayedName }
-        /// 文件名里的版本号用下划线（`A2_5B`），目录名才用点（`A2.5B`）—— 与 4.7 那个仓库一致。
-        var modelFileName: String { "LCO-MiniCPM5-15B-A2_5B-\(label).gguf" }
+        /// 文件名里的版本号用下划线（`A2_5B`），目录名才用点（`A2.5B`）。`-LCO` 后缀标明这是
+        /// LES 重排版本，与 openbmb 发版仓库里的文件名一致。
+        var modelFileName: String { "MiniCPM5-15B-A2_5B-\(label)-LCO.gguf" }
         var modelBytes: Int64 {
             switch self {
-            case .q3gud: return 6_819_614_720
+            case .q3gud: return 6_819_610_624
             }
         }
         /// LFS object id from the Hub. The download manager has no hash step yet, so this is
@@ -1310,18 +1324,31 @@ struct MiniCPM5_15B_A2_5BConst {
         /// every upload). Add it to `ModelDownloadFile` when that grows a hash check.
         var modelSha256: String {
             switch self {
-            case .q3gud: return "bb7b2ece20ec2372898214eaaf86915ff656b2b46e54afc3ea6b3948a3d86f03"
+            case .q3gud: return "c47bec6e93292727e45392cf140285f704affbf3666f381b196bd93bcf6d2255"
             }
         }
-        /// Our own repack repository (one per precision). The expert predictor is packed into the
+        /// 早期由 LComni 发布的同一份权重（`LCO-` 前缀文件名），作为备用源。与发版文件只是
+        /// header 不同，张量数据逐字节相同；它比发版文件大，`modelProblems` 只要求不小于
+        /// `modelBytes`，所以下到哪一份都能通过校验。
+        var legacyMirrors: [ModelDownloadMirror] {
+            switch self {
+            case .q3gud:
+                let name = "LCO-MiniCPM5-15B-A2_5B-Q3_gud.gguf"
+                let bytes: Int64 = 6_819_614_720
+                let sha256 = "bb7b2ece20ec2372898214eaaf86915ff656b2b46e54afc3ea6b3948a3d86f03"
+                return [
+                    ModelDownloadMirror(url: "https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/main/\(name)",
+                                        bytes: bytes, sha256: sha256),
+                    ModelDownloadMirror(url: "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master/LCO-MiniCPM5-15B-A2.5B/\(name)",
+                                        bytes: bytes, sha256: sha256),
+                ]
+            }
+        }
+        /// Official release repository (one per precision). The expert predictor is packed into the
         /// model file itself, so this repo holds exactly one file.
-        var hfBase: String { "https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/main" }
-        /// 国内备用源。MS 没有 HF 那种「一模型一仓库」，全部 gguf 统一放在
-        /// `zerg13/MiniCPM-V-Apps-gguf` 下、按模型分子目录（4.7 用的是
-        /// `LCO-MiniCPM-V-4.7-35B-A3B/`）。**本目录尚未上传**：模型还没开源，这里先占位，
-        /// 所以备用源目前会失败并被跳过（见 `downloadBases`），不影响 HF 主线。
-        /// 上传到 `LCO-MiniCPM5-15B-A2.5B/` 后路径即正确，无需改代码。
-        var msBase: String { "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master/LCO-MiniCPM5-15B-A2.5B" }
+        var hfBase: String { "https://huggingface.co/openbmb/MiniCPM5-15B-A2.5B-\(label)-LCO-GGUF/resolve/main" }
+        /// 国内源：OpenBMB 在 ModelScope 上的同名发版仓库，文件同样在根目录。
+        var msBase: String { "https://www.modelscope.cn/models/OpenBMB/MiniCPM5-15B-A2.5B-\(label)-LCO-GGUF/resolve/master" }
     }
 
     static let precisionDefaultsKey = "minicpm5_15b_a2_5b_precision"
@@ -1338,7 +1365,8 @@ struct MiniCPM5_15B_A2_5BConst {
     /// 字节数用于下载进度和判断下载残片；换文件时要一起改。
     static func downloadFiles(for p: Precision) -> [ModelDownloadFile] {
         [
-            ModelDownloadFile(remotePath: p.modelFileName, localName: p.modelFileName, bytes: p.modelBytes),
+            ModelDownloadFile(remotePath: p.modelFileName, localName: p.modelFileName, bytes: p.modelBytes,
+                              legacyMirrors: p.legacyMirrors),
         ]
     }
     /// 上下文窗口。KV cache 按 n_ctx 一次性分配：28 层 × 2 个 KV head × 128 维 × K/V × F16
