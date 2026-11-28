@@ -1328,18 +1328,21 @@ struct MiniCPM5_15B_A2_5BConst {
             }
         }
         /// 早期由 LComni 发布的同一份权重（`LCO-` 前缀文件名），作为备用源。与发版文件只是
-        /// header 不同，张量数据逐字节相同；它比发版文件大，`modelProblems` 只要求不小于
-        /// `modelBytes`，所以下到哪一份都能通过校验。
+        /// header 不同，张量数据逐字节相同；它的字节数与发版文件一致（6,819,610,624），
+        /// `modelProblems` 只要求不小于 `modelBytes`，所以下到哪一份都能通过校验。
+        ///
+        /// 2026-11-28 重新打包过一次：上一版 header 里带着量化机上的绝对路径
+        /// （`quantize.imatrix.file` / `.dataset`，含产出方用户名和训练 job 号），已清掉。
+        /// 张量一个字节没变，但外部字节数变了 4096（对齐填充），所以下面的 bytes / sha256
+        /// 必须与仓库里的文件一致，否则下载残片清理会误判。
         var legacyMirrors: [ModelDownloadMirror] {
             switch self {
             case .q3gud:
                 let name = "LCO-MiniCPM5-15B-A2_5B-Q3_gud.gguf"
-                let bytes: Int64 = 6_819_614_720
-                let sha256 = "bb7b2ece20ec2372898214eaaf86915ff656b2b46e54afc3ea6b3948a3d86f03"
+                let bytes: Int64 = 6_819_610_624
+                let sha256 = "aad56e4ba4f18d3b2c688911b162152f67cfdf6b42fcd88907988164bf315bdb"
                 return [
                     ModelDownloadMirror(url: "https://huggingface.co/LComni/LCO-MiniCPM5-15B-A2.5B-gguf/resolve/main/\(name)",
-                                        bytes: bytes, sha256: sha256),
-                    ModelDownloadMirror(url: "https://www.modelscope.cn/models/zerg13/MiniCPM-V-Apps-gguf/resolve/master/LCO-MiniCPM5-15B-A2.5B/\(name)",
                                         bytes: bytes, sha256: sha256),
                 ]
             }
